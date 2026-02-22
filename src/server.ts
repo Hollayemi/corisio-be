@@ -62,6 +62,23 @@ app.get('/health', (req, res) => {
     }, 'Server is healthy');
 });
 
+
+// import routes
+
+
+import adminStores from "./routes/adminStores"
+import storeRoutes from "./routes/stores"
+import storeReferral from "./routes/storeReferral"
+import storeAnalytics from "./routes/storeAnalytics"
+import publicStores from "./routes/publicStores"
+
+
+app.use('/api/v1/admin', adminStores);
+app.use('/api/v1/stores', storeRoutes);
+app.use('/api/v1/stores', storeReferral);
+app.use('/api/v1/stores', storeAnalytics);
+app.use('/api/v1/public', publicStores);
+
 app.use('*', handle404);
 
 app.use(errorHandler);

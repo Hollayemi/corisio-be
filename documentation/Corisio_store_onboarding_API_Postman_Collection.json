@@ -1,0 +1,782 @@
+{
+  "info": {
+    "_postman_id": "corisio-api-v1",
+    "name": "Corisio API — Store Onboarding & Referral System",
+    "description": "Complete API documentation for the Corisio platform covering store auth, onboarding, referral tracking, boost management, admin verification, and analytics.\n\n## Base URL\n`{{baseUrl}}` = `http://localhost:5000/api/v1`\n\n## Authentication\nTwo token types exist:\n- **Store JWT** (`storeToken`) — for store owners\n- **Admin JWT** (`token`) — for staff/admin panel\n\nAll protected requests require: `Authorization: Bearer {{token}}`\n\n## Onboarding Flow\n1. `POST /stores/auth/send-otp` → OTP sent to phone\n2. `POST /stores/auth/verify-otp` → JWT issued\n3. `POST /stores/register` → submit profile (with optional referral code)\n4. Admin verifies → boost auto-assigned\n\n## Response Format\nAll responses follow this structure:\n```json\n{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"...\",\n  \"data\": { ... },\n  \"timestamp\": \"2024-01-01T00:00:00.000Z\"\n}\n```",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:5000/api/v1", "type": "string" },
+    { "key": "storeToken", "value": "", "type": "string" },
+    { "key": "adminToken", "value": "", "type": "string" },
+    { "key": "storeId", "value": "", "type": "string" },
+    { "key": "referralCode", "value": "", "type": "string" },
+    { "key": "referralId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "🔐 Store Auth",
+      "description": "OTP-based authentication for store owners. No password needed — phone number + OTP only.",
+      "item": [
+        {
+          "name": "Send OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('OTP sent', () => pm.expect(res.success).to.be.true);",
+                  "if (res.data && res.data.otp) {",
+                  "  pm.collectionVariables.set('otp', res.data.otp);",
+                  "  console.log('DEV OTP captured:', res.data.otp);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348012345678\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/auth/send-otp", "host": ["{{baseUrl}}"], "path": ["stores","auth","send-otp"] },
+            "description": "Sends a 6-digit OTP to the provided phone number via SMS (Twilio).\n\nIf the phone number has no existing store record, a stub record is created automatically.\n\n**In development mode**, the OTP is returned in the response body for testing.\n\n**Rate limiting:** Max 3 OTP requests per phone per 10 minutes.\n\n**Expected behaviour:**\n- New number → creates stub store → sends OTP\n- Existing number → resends OTP\n\n**Response includes** (dev only):\n```json\n{\n  \"phoneNumber\": \"+2348012345678\",\n  \"message\": \"OTP sent successfully\",\n  \"otp\": \"123456\"\n}\n```"
+          },
+          "response": [
+            {
+              "name": "200 — OTP Sent (Dev)",
+              "originalRequest": { "method": "POST", "body": { "mode": "raw", "raw": "{\n  \"phoneNumber\": \"+2348012345678\"\n}" } },
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"OTP sent\",\n  \"data\": {\n    \"phoneNumber\": \"+2348012345678\",\n    \"message\": \"OTP sent successfully\",\n    \"otp\": \"482910\"\n  },\n  \"timestamp\": \"2024-11-20T09:00:00.000Z\"\n}"
+            },
+            {
+              "name": "400 — Missing Phone",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Phone number is required\",\n  \"timestamp\": \"2024-11-20T09:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Token returned', () => pm.expect(res.data.token).to.be.a('string'));",
+                  "if (res.data && res.data.token) {",
+                  "  pm.collectionVariables.set('storeToken', res.data.token);",
+                  "  pm.collectionVariables.set('storeId', res.data.store.id);",
+                  "  console.log('Store token saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348012345678\",\n  \"otp\": \"482910\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/auth/verify-otp", "host": ["{{baseUrl}}"], "path": ["stores","auth","verify-otp"] },
+            "description": "Verifies the OTP and issues a JWT access token + refresh token.\n\n**On success:**\n- `isPhoneVerified` set to `true`\n- `onboardingStatus` advances to `phone_verified`\n- JWT stored in `storeToken` httpOnly cookie AND returned in body\n\n**OTP expiry:** 10 minutes\n\n**Token expiry:** Access token 7 days, Refresh token 30 days\n\n**Next step after this:** Call `POST /stores/register` to complete the profile."
+          },
+          "response": [
+            {
+              "name": "200 — Verified + Token",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Phone verified — login successful\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"64abc123def456\",\n      \"storeName\": \"Store_345678\",\n      \"ownerName\": \"Pending\",\n      \"phoneNumber\": \"+2348012345678\",\n      \"onboardingStatus\": \"phone_verified\",\n      \"referralCode\": \"STOR-AB12XY\",\n      \"boost\": { \"level\": \"none\", \"totalReferrals\": 0 }\n    },\n    \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"\n  },\n  \"timestamp\": \"2024-11-20T09:01:00.000Z\"\n}"
+            },
+            {
+              "name": "401 — Invalid OTP",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Invalid or expired OTP\",\n  \"timestamp\": \"2024-11-20T09:01:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Resend OTP",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348012345678\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/auth/resend-otp", "host": ["{{baseUrl}}"], "path": ["stores","auth","resend-otp"] },
+            "description": "Generates a fresh OTP and sends it to the phone number. Invalidates the previous OTP.\n\n**Use when:** User did not receive the first OTP or it expired.\n\n**Cooldown:** 60 seconds between resend requests (enforced server-side)."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.token) {",
+                  "  pm.collectionVariables.set('storeToken', res.data.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/auth/refresh-token", "host": ["{{baseUrl}}"], "path": ["stores","auth","refresh-token"] },
+            "description": "Exchanges a valid refresh token for a new access token. Use when the access token expires (7 days).\n\n**Store the refresh token** on the client at initial login and use it here when you get a 401.\n\n**Refresh token validity:** 30 days"
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" }
+            ],
+            "url": { "raw": "{{baseUrl}}/stores/auth/logout", "host": ["{{baseUrl}}"], "path": ["stores","auth","logout"] },
+            "description": "Clears the refresh token from the database and expires the auth cookie.\n\n**Frontend should also:** delete the stored token from localStorage/AsyncStorage.\n\n**Requires:** Valid store JWT in Authorization header."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "🏪 Store Profile & Onboarding",
+      "description": "Store profile setup and management. The minimal required fields for onboarding are: storeName, ownerName, category, address. All others are optional but improve discoverability.",
+      "item": [
+        {
+          "name": "Register / Submit Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Profile updated', () => pm.expect(res.success).to.be.true);",
+                  "if (res.data && res.data.store) {",
+                  "  pm.collectionVariables.set('referralCode', res.data.store.referralCode);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeName\": \"Mama Tee's Kitchen\",\n  \"ownerName\": \"Temi Adeyemi\",\n  \"category\": \"64abc000000000000000001\",\n  \"address\": {\n    \"raw\": \"15 Wuse Zone 5, Abuja\",\n    \"lga\": \"Municipal Area Council\",\n    \"state\": \"FCT\",\n    \"coordinates\": {\n      \"type\": \"Point\",\n      \"coordinates\": [7.4898, 9.0579]\n    }\n  },\n  \"referralCode\": \"STOR-AB12XY\",\n  \"description\": \"Authentic Nigerian homemade food. Open daily.\",\n  \"openingHours\": [\n    { \"day\": \"Mon\", \"open\": \"08:00\", \"close\": \"20:00\", \"isClosed\": false },\n    { \"day\": \"Sun\", \"open\": \"10:00\", \"close\": \"18:00\", \"isClosed\": false }\n  ],\n  \"website\": \"https://mamatee.ng\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/register", "host": ["{{baseUrl}}"], "path": ["stores","register"] },
+            "description": "Submit the store's profile. **Can also be used as PUT /stores/profile** for updating.\n\n**Required fields (minimum to advance to `profile_complete`):**\n- `storeName`\n- `ownerName`\n- `category` (ObjectId from Categories API)\n- `address.raw`, `address.lga`, `address.state`, `address.coordinates`\n\n**Optional fields:**\n- `referralCode` — the code of the store that referred this one. Only accepted once, and only from a verified referrer store. Creates a `Referral` record.\n- `description` — max 500 chars\n- `openingHours` — array of day objects\n- `website`\n\n**Status transitions:**\n- Before: `phone_verified`\n- After (all required fields present): `profile_complete`\n\n**Profile score** is recalculated on every save (0–100).\n\n**Referral handling:** If `referralCode` is provided and the referrer is verified, a `Referral` record is created with `status: pending`. The boost only activates AFTER admin verification."
+          },
+          "response": [
+            {
+              "name": "200 — Profile Complete",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Profile updated successfully\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"64abc123def456\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"onboardingStatus\": \"profile_complete\",\n      \"profileCompletionScore\": 75,\n      \"referralCode\": \"STOR-CD34ZW\"\n    }\n  },\n  \"timestamp\": \"2024-11-20T09:05:00.000Z\"\n}"
+            },
+            {
+              "name": "401 — Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Not authorized — please log in\",\n  \"timestamp\": \"2024-11-20T09:05:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Profile (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated description — now serving jollof rice and puff puff!\",\n  \"openingHours\": [\n    { \"day\": \"Mon\", \"open\": \"07:00\", \"close\": \"21:00\", \"isClosed\": false },\n    { \"day\": \"Tue\", \"open\": \"07:00\", \"close\": \"21:00\", \"isClosed\": false },\n    { \"day\": \"Sun\", \"open\": \"10:00\", \"close\": \"17:00\", \"isClosed\": false }\n  ],\n  \"website\": \"https://mamatee.ng\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/profile", "host": ["{{baseUrl}}"], "path": ["stores","profile"] },
+            "description": "Update any optional profile fields after registration. Same endpoint as POST /stores/register — partial updates are supported (only send changed fields).\n\n**Note:** `referralCode` (incoming) is ignored if a referral was already set."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Store",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/me", "host": ["{{baseUrl}}"], "path": ["stores","me"] },
+            "description": "Returns the full profile of the currently authenticated store, including boost status, verification status, and referral code.\n\nUse on app launch to restore session state."
+          },
+          "response": [
+            {
+              "name": "200 — Store Profile",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Store retrieved\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"64abc123def456\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"ownerName\": \"Temi Adeyemi\",\n      \"phoneNumber\": \"+2348012345678\",\n      \"category\": { \"_id\": \"64abc...\", \"name\": \"Food & Drinks\" },\n      \"address\": {\n        \"raw\": \"15 Wuse Zone 5, Abuja\",\n        \"lga\": \"Municipal Area Council\",\n        \"state\": \"FCT\",\n        \"coordinates\": { \"type\": \"Point\", \"coordinates\": [7.4898, 9.0579] }\n      },\n      \"onboardingStatus\": \"profile_complete\",\n      \"isPhoneVerified\": true,\n      \"profileCompletionScore\": 75,\n      \"referralCode\": \"STOR-CD34ZW\",\n      \"boost\": {\n        \"level\": \"none\",\n        \"totalReferrals\": 0\n      },\n      \"photos\": [],\n      \"isActive\": true\n    }\n  },\n  \"timestamp\": \"2024-11-20T09:06:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Profile Completion Checklist",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/profile/completion", "host": ["{{baseUrl}}"], "path": ["stores","profile","completion"] },
+            "description": "Returns a checklist of profile fields with completion status, point values, and whether the store is ready for admin verification.\n\n**Use this to build the onboarding progress UI.**\n\n`readyForVerification: true` means the store has all required fields (score ≥ 50) and can be submitted to the admin queue."
+          },
+          "response": [
+            {
+              "name": "200 — Completion Checklist",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Completion checklist\",\n  \"data\": {\n    \"score\": 75,\n    \"readyForVerification\": true,\n    \"checklist\": [\n      { \"field\": \"storeName\", \"label\": \"Store Name\", \"complete\": true, \"points\": 15, \"required\": true },\n      { \"field\": \"ownerName\", \"label\": \"Owner Name\", \"complete\": true, \"points\": 10, \"required\": true },\n      { \"field\": \"phoneNumber\", \"label\": \"Phone (verified)\", \"complete\": true, \"points\": 10, \"required\": true },\n      { \"field\": \"category\", \"label\": \"Category\", \"complete\": true, \"points\": 10, \"required\": true },\n      { \"field\": \"address\", \"label\": \"Address\", \"complete\": true, \"points\": 15, \"required\": true },\n      { \"field\": \"photos\", \"label\": \"Store Photo\", \"complete\": false, \"points\": 15, \"required\": false },\n      { \"field\": \"openingHours\", \"label\": \"Opening Hours\", \"complete\": true, \"points\": 10, \"required\": false },\n      { \"field\": \"description\", \"label\": \"Description\", \"complete\": false, \"points\": 10, \"required\": false },\n      { \"field\": \"website\", \"label\": \"Website\", \"complete\": false, \"points\": 5, \"required\": false }\n    ]\n  },\n  \"timestamp\": \"2024-11-20T09:07:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Upload Store Photo",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "image",
+                  "type": "file",
+                  "description": "Store photo — JPG, PNG, WebP or GIF. Max 5MB."
+                }
+              ]
+            },
+            "url": { "raw": "{{baseUrl}}/stores/upload-photo", "host": ["{{baseUrl}}"], "path": ["stores","upload-photo"] },
+            "description": "Upload one store photo at a time. Photos are uploaded to Cloudinary and the URL is stored in the `photos` array.\n\n**Constraints:**\n- Max file size: 5MB\n- Allowed types: JPG, PNG, WebP, GIF\n- Max photos per store: 5\n\n**Effect:** Adds 15 points to `profileCompletionScore` when first photo is added.\n\n**Content-Type:** `multipart/form-data` (set automatically by Postman when using file upload)."
+          },
+          "response": []
+        },
+        {
+          "name": "Browse Stores (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/stores?lat=9.0579&lng=7.4898&radius=5000&category=Food&lga=Wuse&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["stores"],
+              "query": [
+                { "key": "lat", "value": "9.0579", "description": "User's latitude (for geo sort)" },
+                { "key": "lng", "value": "7.4898", "description": "User's longitude" },
+                { "key": "radius", "value": "5000", "description": "Search radius in metres (default 5000)" },
+                { "key": "category", "value": "Food", "description": "Category name filter" },
+                { "key": "lga", "value": "Wuse", "description": "LGA filter" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Public store listing with geo-proximity sorting and optional filters.\n\n**Boost-aware ranking:** Stores with active boosts appear higher in results:\n- Gold → top of results\n- Silver → above non-boosted\n- Bronze → slight priority\n\n**Requires:** No auth. Optionally pass user coordinates for distance-sorted results.\n\n**Results include:** store name, category, address, boost level, distance from user, photos."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Single Store (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": { "raw": "{{baseUrl}}/stores/{{storeId}}", "host": ["{{baseUrl}}"], "path": ["stores","{{storeId}}"] },
+            "description": "Retrieves full public profile for a single store.\n\nAlso increments `profileViews` counter for analytics.\n\n**Returns:** All public fields including photos, opening hours, description, boost badge, and address."
+          },
+          "response": []
+        },
+        {
+          "name": "My Store Analytics",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/analytics/me", "host": ["{{baseUrl}}"], "path": ["stores","analytics","me"] },
+            "description": "Returns the store's own performance metrics.\n\n**Metrics:**\n- `profileViews` — total visits to store detail page\n- `searchAppearances` — how many times shown in search results\n- `clickThroughs` — clicks from search results to profile\n- `ctr` — click-through rate (clickThroughs / searchAppearances)\n- `validatedReferrals` — count of successfully validated referrals\n- `boost` — current boost status"
+          },
+          "response": [
+            {
+              "name": "200 — Store Analytics",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Store analytics\",\n  \"data\": {\n    \"profileViews\": 142,\n    \"searchAppearances\": 890,\n    \"clickThroughs\": 67,\n    \"ctr\": \"7.5%\",\n    \"validatedReferrals\": 4,\n    \"boost\": {\n      \"level\": \"silver\",\n      \"activatedAt\": \"2024-10-15T00:00:00.000Z\",\n      \"expiresAt\": \"2024-12-14T00:00:00.000Z\",\n      \"totalReferrals\": 4,\n      \"source\": \"referral\"\n    }\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🔗 Referral System",
+      "description": "Referral management for store owners. Only VERIFIED stores can generate and send referral links. Referral rewards (boosts) only activate when the referred store completes their profile AND is verified by an admin.",
+      "item": [
+        {
+          "name": "Get My Referral Code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.referralCode) {",
+                  "  pm.collectionVariables.set('referralCode', res.data.referralCode);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/referral/my-code", "host": ["{{baseUrl}}"], "path": ["stores","referral","my-code"] },
+            "description": "Returns the store's unique referral code, shareable link, and QR code URL.\n\n**Requires:** Store must have `onboardingStatus: verified` — pending stores cannot refer others.\n\n**Shareable link format:** `https://corisio.ng/join?ref=STOR-AB12XY`\n\n**QR Code:** Pre-generated URL pointing to a QR code image for print or display."
+          },
+          "response": [
+            {
+              "name": "200 — Referral Code",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral code retrieved\",\n  \"data\": {\n    \"referralCode\": \"STOR-AB12XY\",\n    \"shareableLink\": \"https://corisio.ng/join?ref=STOR-AB12XY\",\n    \"qrCodeUrl\": \"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https%3A%2F%2Fcorisio.ng%2Fjoin%3Fref%3DSTOR-AB12XY\"\n  }\n}"
+            },
+            {
+              "name": "403 — Store Not Verified",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Your store must be verified before you can perform this action\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Send Referral SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{storeToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348098765432\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/stores/referral/send-sms", "host": ["{{baseUrl}}"], "path": ["stores","referral","send-sms"] },
+            "description": "Sends a referral invitation SMS to a neighbouring store's phone number.\n\n**Rate limit:** Max 5 SMS referrals per store per 24 hours. Returns `429` if exceeded.\n\n**Guard:** If the phone number belongs to an already-verified store, returns `409 Conflict`.\n\n**SMS content example:**\n> \"Hi! Mama Tee's Kitchen invites you to list your store on Corisio — Abuja's local store directory. Join here: https://corisio.ng/join?ref=STOR-AB12XY\"\n\n**Requires:** Verified store only."
+          },
+          "response": [
+            {
+              "name": "200 — SMS Sent",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral SMS sent successfully\"\n}"
+            },
+            {
+              "name": "429 — Daily Limit Reached",
+              "status": "Too Many Requests",
+              "code": 429,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"You can send a maximum of 5 referral SMS per day\"\n}"
+            },
+            {
+              "name": "409 — Already Registered",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"This store is already registered on Corisio\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get My Referrals",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/referral/my-referrals", "host": ["{{baseUrl}}"], "path": ["stores","referral","my-referrals"] },
+            "description": "Lists all stores this store has referred, with their current referral status.\n\n**Status meanings:**\n- `pending` — referred store registered but not yet verified\n- `profile_complete` — referred store submitted full profile, awaiting admin review\n- `validated` — referred store verified by admin → boost has been applied\n- `rejected` — referral flagged or failed abuse check\n\n**Use this to build the referral tracking screen in the app.**"
+          },
+          "response": [
+            {
+              "name": "200 — My Referrals List",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"My referrals\",\n  \"data\": {\n    \"summary\": {\n      \"total\": 6,\n      \"pending\": 1,\n      \"profileComplete\": 1,\n      \"validated\": 4,\n      \"rejected\": 0\n    },\n    \"referrals\": [\n      {\n        \"_id\": \"ref001\",\n        \"status\": \"validated\",\n        \"channel\": \"sms\",\n        \"boostApplied\": true,\n        \"boostAppliedAt\": \"2024-10-20T10:00:00.000Z\",\n        \"referred\": {\n          \"storeName\": \"Kola Electronics\",\n          \"onboardingStatus\": \"verified\",\n          \"address\": { \"lga\": \"Wuse Zone 5\" }\n        },\n        \"milestones\": {\n          \"registeredAt\": \"2024-10-18T08:00:00.000Z\",\n          \"adminVerifiedAt\": \"2024-10-20T09:45:00.000Z\",\n          \"validatedAt\": \"2024-10-20T10:00:00.000Z\"\n        }\n      },\n      {\n        \"_id\": \"ref002\",\n        \"status\": \"pending\",\n        \"channel\": \"link\",\n        \"boostApplied\": false,\n        \"referred\": {\n          \"storeName\": \"Pending Setup\",\n          \"onboardingStatus\": \"phone_verified\"\n        },\n        \"milestones\": {\n          \"registeredAt\": \"2024-11-19T14:00:00.000Z\"\n        }\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Referral Stats + Boost Progress",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/referral/stats", "host": ["{{baseUrl}}"], "path": ["stores","referral","stats"] },
+            "description": "Returns the store's referral performance summary and progress toward the next boost level.\n\n**Boost milestones:**\n| Level | Required Referrals | Duration |\n|-------|-------------------|----------|\n| Bronze | 1 | 30 days |\n| Silver | 4 | 60 days |\n| Gold | 10 | 90 days |\n\n**Progress object** tells the frontend:\n- Current boost level\n- Next level to aim for\n- How many more validated referrals needed\n\n**Use this to build the boost progress bar/gamification UI.**"
+          },
+          "response": [
+            {
+              "name": "200 — Stats + Progress",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral stats\",\n  \"data\": {\n    \"boost\": {\n      \"level\": \"silver\",\n      \"activatedAt\": \"2024-10-20T00:00:00.000Z\",\n      \"expiresAt\": \"2024-12-19T00:00:00.000Z\",\n      \"totalReferrals\": 4,\n      \"source\": \"referral\"\n    },\n    \"validatedReferrals\": 4,\n    \"progress\": {\n      \"currentLevel\": \"silver\",\n      \"nextLevel\": \"gold\",\n      \"referralsToNext\": 6\n    },\n    \"milestones\": {\n      \"bronze\": { \"required\": 1, \"duration\": \"30 days\", \"reached\": true },\n      \"silver\": { \"required\": 4, \"duration\": \"60 days\", \"reached\": true },\n      \"gold\": { \"required\": 10, \"duration\": \"90 days\", \"reached\": false }\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Boost Status",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{storeToken}}" }],
+            "url": { "raw": "{{baseUrl}}/stores/boost/status", "host": ["{{baseUrl}}"], "path": ["stores","boost","status"] },
+            "description": "Returns the store's current boost level, active/inactive state, and days remaining.\n\n**Use this for the boost badge/banner in the store dashboard.**\n\n**`isActive`** is `true` only if boost level is not `none` AND `expiresAt` is in the future."
+          },
+          "response": [
+            {
+              "name": "200 — Active Boost",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Boost status\",\n  \"data\": {\n    \"boost\": {\n      \"level\": \"silver\",\n      \"activatedAt\": \"2024-10-20T00:00:00.000Z\",\n      \"expiresAt\": \"2024-12-19T00:00:00.000Z\",\n      \"totalReferrals\": 4,\n      \"source\": \"referral\"\n    },\n    \"isActive\": true,\n    \"daysRemaining\": 29\n  }\n}"
+            },
+            {
+              "name": "200 — No Boost",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Boost status\",\n  \"data\": {\n    \"boost\": { \"level\": \"none\", \"totalReferrals\": 0 },\n    \"isActive\": false,\n    \"daysRemaining\": 0\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🛡️ Admin — Store Verification",
+      "description": "Admin endpoints for verifying stores, managing the verification queue, and manually granting boosts. All routes require a valid admin JWT with appropriate permissions.",
+      "item": [
+        {
+          "name": "Get Pending Stores",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/pending?page=1&limit=20&lga=Wuse",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin","stores","pending"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" },
+                { "key": "lga", "value": "Wuse", "description": "Filter by LGA" },
+                { "key": "category", "value": "", "description": "Filter by category ObjectId", "disabled": true }
+              ]
+            },
+            "description": "Returns a paginated list of stores with `onboardingStatus: profile_complete` — i.e. stores waiting for admin verification.\n\n**Sorted:** Oldest first (FIFO queue — longest waiting stores appear first).\n\n**Filters:** `lga`, `category`\n\n**Permission required:** `view_users`\n\n**Includes:** Category name, referral info (who referred this store)."
+          },
+          "response": [
+            {
+              "name": "200 — Pending Queue",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Pending stores\",\n  \"data\": {\n    \"total\": 14,\n    \"page\": 1,\n    \"limit\": 20,\n    \"stores\": [\n      {\n        \"_id\": \"64abc123\",\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"ownerName\": \"Temi Adeyemi\",\n        \"phoneNumber\": \"+2348012345678\",\n        \"category\": { \"_id\": \"cat001\", \"name\": \"Food & Drinks\" },\n        \"address\": {\n          \"raw\": \"15 Wuse Zone 5, Abuja\",\n          \"lga\": \"Municipal Area Council\",\n          \"coordinates\": { \"type\": \"Point\", \"coordinates\": [7.4898, 9.0579] }\n        },\n        \"onboardingStatus\": \"profile_complete\",\n        \"profileCompletionScore\": 75,\n        \"referredBy\": {\n          \"storeName\": \"Kola Electronics\",\n          \"referralCode\": \"STOR-AB12XY\"\n        },\n        \"createdAt\": \"2024-11-18T08:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Store Detail (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/stores/{{storeId}}", "host": ["{{baseUrl}}"], "path": ["admin","stores","{{storeId}}"] },
+            "description": "Full admin view of a store including:\n- Complete store data\n- Referral history (all referrals this store has made)\n- Referral received (who referred this store)\n- Boost history (full ledger)\n\n**Permission required:** `view_users`"
+          },
+          "response": [
+            {
+              "name": "200 — Full Store Detail",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Store detail\",\n  \"data\": {\n    \"store\": { \"storeName\": \"Mama Tee's Kitchen\", \"onboardingStatus\": \"profile_complete\", \"boost\": { \"level\": \"none\" } },\n    \"referralsMade\": [],\n    \"referralReceived\": {\n      \"referrer\": { \"storeName\": \"Kola Electronics\", \"referralCode\": \"STOR-AB12XY\" },\n      \"status\": \"pending\",\n      \"channel\": \"sms\"\n    },\n    \"boostHistory\": []\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Verify Store ✅",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Store verified', () => {",
+                  "  pm.expect(res.data.store.onboardingStatus).to.equal('verified');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"agent_visit\",\n  \"notes\": \"Physically visited. Store confirmed at stated location. GPS matches within 15m.\",\n  \"verifiedCoordinates\": [7.4900, 9.0581]\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/stores/{{storeId}}/verify", "host": ["{{baseUrl}}"], "path": ["admin","stores","{{storeId}}","verify"] },
+            "description": "Marks a store as verified. **This is the most important action in the system** — it triggers the entire referral validation chain.\n\n**What happens automatically after this call:**\n1. `onboardingStatus` → `verified`\n2. `verifiedAt`, `verifiedBy`, `verificationMethod` recorded\n3. `validateReferral()` service called asynchronously\n4. If referral passes abuse checks → `Referral.status` → `validated`\n5. Referrer's `boost` level recalculated and updated\n6. `BoostLedger` entry created (immutable audit)\n7. Push notification sent to referrer store owner\n\n**Verification methods:**\n- `agent_visit` — field agent physically visited the store\n- `gps` — GPS coordinates confirmed\n- `photo` — store photo verified\n- `id_check` — owner ID checked\n\n**`verifiedCoordinates`** (optional) — agent-confirmed GPS coordinates, updates the store's stored location if provided.\n\n**Permission required:** `create_users`"
+          },
+          "response": [
+            {
+              "name": "200 — Verified",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Store verified successfully\",\n  \"data\": {\n    \"store\": {\n      \"_id\": \"64abc123\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"onboardingStatus\": \"verified\",\n      \"verifiedAt\": \"2024-11-20T10:00:00.000Z\",\n      \"verificationMethod\": \"agent_visit\"\n    }\n  }\n}"
+            },
+            {
+              "name": "409 — Already Verified",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Store is already verified\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Reject Store ❌",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Could not locate store at provided address. Phone number unreachable. Please resubmit with correct location.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/stores/{{storeId}}/reject", "host": ["{{baseUrl}}"], "path": ["admin","stores","{{storeId}}","reject"] },
+            "description": "Rejects a store's verification request with a mandatory reason.\n\n**After rejection:**\n- `onboardingStatus` → `rejected`\n- `rejectionReason` stored (shown to store owner)\n- Store can resubmit corrected info and re-enter verification queue\n- Any pending referral is NOT invalidated — it stays `pending` until the store re-applies and is eventually verified or permanently rejected\n\n**Permission required:** `create_users`"
+          },
+          "response": []
+        },
+        {
+          "name": "Grant Boost (Admin Manual)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"level\": \"gold\",\n  \"durationDays\": 90,\n  \"note\": \"Promotional grant for early adopter store — Abuja Launch Week\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/stores/{{storeId}}/boost-grant", "host": ["{{baseUrl}}"], "path": ["admin","stores","{{storeId}}","boost-grant"] },
+            "description": "Manually grant a boost to a store outside of the normal referral system.\n\n**Use cases:**\n- Early adopter promotions\n- Make-good for service issues\n- Partnership deals\n\n**`level`:** `bronze`, `silver`, or `gold`\n**`durationDays`:** How many days the boost lasts (default 30)\n**`note`:** Reason for grant (stored in BoostLedger for audit)\n\n**Source** is recorded as `admin_grant` in the boost record.\n\n**Permission required:** `manage_roles`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Referral Tree",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/stores/{{storeId}}/referral-tree", "host": ["{{baseUrl}}"], "path": ["admin","stores","{{storeId}}","referral-tree"] },
+            "description": "Returns a 2-level deep referral network tree rooted at the given store.\n\n**Returns:**\n- `root` — the store itself\n- `directReferrals` — stores directly referred (depth 1)\n- `secondDegreeReferrals` — stores referred by direct referrals (depth 2)\n- `totalNetwork` — total network size\n\n**Use for:** Admin dashboard network visualization, fraud investigation, understanding store clusters.\n\n**Permission required:** `view_users`"
+          },
+          "response": [
+            {
+              "name": "200 — Referral Tree",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral tree\",\n  \"data\": {\n    \"root\": { \"id\": \"64abc1\", \"storeName\": \"Mama Tee's Kitchen\", \"referralCode\": \"STOR-AB12XY\" },\n    \"directReferrals\": [\n      {\n        \"status\": \"validated\",\n        \"referred\": { \"storeName\": \"Kola Electronics\", \"onboardingStatus\": \"verified\", \"boost\": { \"level\": \"bronze\" } }\n      },\n      {\n        \"status\": \"pending\",\n        \"referred\": { \"storeName\": \"Brothers Pharmacy\", \"onboardingStatus\": \"phone_verified\" }\n      }\n    ],\n    \"secondDegreeReferrals\": [\n      {\n        \"referrer\": { \"storeName\": \"Kola Electronics\" },\n        \"referred\": { \"storeName\": \"City Barber\", \"onboardingStatus\": \"verified\" }\n      }\n    ],\n    \"totalNetwork\": 3\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "🛡️ Admin — Referral Management",
+      "description": "Admin tools for managing referrals, fraud detection, and boost monitoring.",
+      "item": [
+        {
+          "name": "Get All Referrals",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/referrals?status=pending&flagged=false&page=1&limit=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin","referrals"],
+              "query": [
+                { "key": "status", "value": "pending", "description": "Filter: pending | profile_complete | validated | rejected" },
+                { "key": "flagged", "value": "false", "description": "Filter: true | false" },
+                { "key": "page", "value": "1" },
+                { "key": "limit", "value": "20" }
+              ]
+            },
+            "description": "Paginated list of all referrals in the system with filtering.\n\n**Filters:**\n- `status` — `pending`, `profile_complete`, `validated`, `rejected`\n- `flagged` — `true` to see only fraud-flagged referrals\n\n**Permission required:** `view_users`"
+          },
+          "response": []
+        },
+        {
+          "name": "Flag Referral as Fraudulent",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Store owner confirmed they do not know the referrer. Suspected paid referral scheme.\"\n}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/referrals/{{referralId}}/flag", "host": ["{{baseUrl}}"], "path": ["admin","referrals","{{referralId}}","flag"] },
+            "description": "Flags a referral as fraudulent.\n\n**If the referral was already `validated`:**\n- Status reverted to `rejected`\n- Referrer's boost is recalculated (this referral no longer counts)\n- `BoostLedger` records the change\n\n**If referral was `pending`:**\n- Marked as flagged — will not validate even if store is later verified\n\n**Permission required:** `manage_roles`"
+          },
+          "response": []
+        },
+        {
+          "name": "Unflag Referral",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{adminToken}}" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": { "raw": "{{baseUrl}}/admin/referrals/{{referralId}}/unflag", "host": ["{{baseUrl}}"], "path": ["admin","referrals","{{referralId}}","unflag"] },
+            "description": "Clears the fraud flag from a referral after manual review determines it is legitimate.\n\n**Note:** Unflagging does NOT automatically re-validate the referral or re-apply the boost. Admin should re-run verification flow or manually grant boost if needed.\n\n**Permission required:** `manage_roles`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Expiring Boosts",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/boosts/expiring", "host": ["{{baseUrl}}"], "path": ["admin","boosts","expiring"] },
+            "description": "Returns all stores whose boosts expire within the next 7 days.\n\n**Use case:** Proactively notify stores to refer more stores before their boost expires. Good for automated email/push campaign triggers.\n\n**Permission required:** `view_users`"
+          },
+          "response": [
+            {
+              "name": "200 — Expiring Boosts",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Expiring boosts\",\n  \"data\": {\n    \"count\": 3,\n    \"stores\": [\n      {\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"phoneNumber\": \"+2348012345678\",\n        \"address\": { \"lga\": \"Municipal Area Council\" },\n        \"boost\": {\n          \"level\": \"silver\",\n          \"expiresAt\": \"2024-11-23T00:00:00.000Z\",\n          \"totalReferrals\": 4\n        }\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Boost Ledger",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/boosts/ledger/{{storeId}}", "host": ["{{baseUrl}}"], "path": ["admin","boosts","ledger","{{storeId}}"] },
+            "description": "Returns the complete, immutable boost audit trail for a specific store.\n\n**Every boost event is logged:** activation, upgrade, expiry, revocation, admin grants.\n\n**Each entry includes:**\n- `event` — what happened\n- `fromLevel` / `toLevel` — the transition\n- `triggerReferral` — which referral caused this (if applicable)\n- `expiresAt` — when this boost was set to expire\n- `note` — admin comment or system note\n\n**Use for:** Dispute resolution, auditing, customer support.\n\n**Permission required:** `access_reports`"
+          },
+          "response": [
+            {
+              "name": "200 — Boost Ledger",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Boost ledger\",\n  \"data\": {\n    \"ledger\": [\n      {\n        \"event\": \"upgraded\",\n        \"fromLevel\": \"bronze\",\n        \"toLevel\": \"silver\",\n        \"expiresAt\": \"2024-12-19T00:00:00.000Z\",\n        \"note\": \"Validated referral count: 4\",\n        \"triggerReferral\": { \"referred\": \"64abc999\", \"status\": \"validated\" },\n        \"createdAt\": \"2024-10-20T10:00:00.000Z\"\n      },\n      {\n        \"event\": \"activated\",\n        \"fromLevel\": \"none\",\n        \"toLevel\": \"bronze\",\n        \"expiresAt\": \"2024-10-20T00:00:00.000Z\",\n        \"note\": \"Validated referral count: 1\",\n        \"createdAt\": \"2024-09-20T10:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "📊 Admin — Analytics",
+      "description": "Analytics and reporting endpoints. All require admin JWT with `access_reports` permission.",
+      "item": [
+        {
+          "name": "Referral Network Analytics",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/analytics/referrals", "host": ["{{baseUrl}}"], "path": ["admin","analytics","referrals"] },
+            "description": "Comprehensive referral network analytics dashboard data.\n\n**Includes:**\n- Volume: total, validated, pending, rejected referrals\n- Conversion rate (validated / total)\n- Top 10 referrers by validated count with boost levels\n- Boost distribution across all stores (none/bronze/silver/gold counts)\n- Channel breakdown (sms/link/phone_input/qr_code)\n- Abuse metrics: flagged count, auto-rejected, pending admin review\n\n**Use for:** Weekly KPI reporting, identifying top referrers for rewards, detecting abuse spikes."
+          },
+          "response": [
+            {
+              "name": "200 — Full Analytics",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral analytics\",\n  \"data\": {\n    \"volume\": { \"total\": 348, \"validated\": 271, \"pending\": 52, \"rejected\": 25 },\n    \"conversionRate\": \"77.9%\",\n    \"topReferrers\": [\n      { \"storeName\": \"Mama Tee's Kitchen\", \"lga\": \"Municipal Area Council\", \"boostLevel\": \"gold\", \"validatedCount\": 14 },\n      { \"storeName\": \"Kola Electronics\", \"lga\": \"Wuse Zone 5\", \"boostLevel\": \"silver\", \"validatedCount\": 9 }\n    ],\n    \"boostDistribution\": { \"none\": 183, \"bronze\": 47, \"silver\": 18, \"gold\": 3 },\n    \"channelBreakdown\": [\n      { \"_id\": \"sms\", \"count\": 180 },\n      { \"_id\": \"link\", \"count\": 140 },\n      { \"_id\": \"qr_code\", \"count\": 28 }\n    ],\n    \"abuse\": { \"flagged\": 25, \"autoRejected\": 18, \"pendingAdminReview\": 7 }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Onboarding Funnel",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": {
+              "raw": "{{baseUrl}}/admin/analytics/onboarding?period=30",
+              "host": ["{{baseUrl}}"],
+              "path": ["admin","analytics","onboarding"],
+              "query": [
+                { "key": "period", "value": "30", "description": "Number of days to look back (default: 30)" }
+              ]
+            },
+            "description": "Store onboarding conversion funnel for a given time period.\n\n**Funnel stages:**\n1. `registered` — phone number submitted\n2. `phoneVerified` — OTP verified\n3. `profileComplete` — all required fields submitted\n4. `verified` — admin approved\n5. `rejected` — admin rejected\n\n**Drop-off rates** calculated between each stage to identify friction points.\n\n**`avgOnboardingMinutes`** — average time from registration to profile_complete.\n\n**Use for:** Identifying where stores drop off, optimizing the onboarding UX."
+          },
+          "response": [
+            {
+              "name": "200 — Funnel Data",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Onboarding funnel\",\n  \"data\": {\n    \"period\": \"last_30_days\",\n    \"funnel\": {\n      \"registered\": 180,\n      \"phoneVerified\": 174,\n      \"profileComplete\": 155,\n      \"verified\": 121,\n      \"rejected\": 12\n    },\n    \"dropOffRates\": {\n      \"registrationToPhone\": \"3.3%\",\n      \"phoneToProfile\": \"11.0%\",\n      \"profileToVerified\": \"22.0%\"\n    },\n    \"avgOnboardingMinutes\": 7\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Cluster Density (Geo Heatmap)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{adminToken}}" }],
+            "url": { "raw": "{{baseUrl}}/admin/analytics/cluster-density", "host": ["{{baseUrl}}"], "path": ["admin","analytics","cluster-density"] },
+            "description": "Returns store density data grouped by LGA and category — ideal for rendering a geo heatmap or coverage map.\n\n**Returns:**\n- `clusters` — array of { lga, category, count, centroid [lng, lat] }\n- `lgaSummary` — stores per LGA sorted by density\n- `densestLGA` — the most store-dense LGA\n- `coverageZones` — number of unique LGAs with verified stores\n\n**Use for:**\n- Identifying underserved areas to target for agent outreach\n- Map visualization of Corisio store coverage\n- Deciding where to focus onboarding campaigns\n\n**Permission required:** `access_reports`"
+          },
+          "response": [
+            {
+              "name": "200 — Density Data",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Cluster density\",\n  \"data\": {\n    \"totalVerifiedStores\": 251,\n    \"densestLGA\": \"Wuse Zone 5\",\n    \"coverageZones\": 12,\n    \"lgaSummary\": [\n      { \"_id\": \"Wuse Zone 5\", \"count\": 34 },\n      { \"_id\": \"Garki Area 2\", \"count\": 22 },\n      { \"_id\": \"Maitama\", \"count\": 18 }\n    ],\n    \"clusters\": [\n      { \"lga\": \"Wuse Zone 5\", \"category\": \"Food & Drinks\", \"count\": 14, \"centroid\": [7.49, 9.06] },\n      { \"lga\": \"Wuse Zone 5\", \"category\": \"Fashion\", \"count\": 10, \"centroid\": [7.49, 9.06] },\n      { \"lga\": \"Garki Area 2\", \"category\": \"Electronics\", \"count\": 9, \"centroid\": [7.48, 9.04] }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
