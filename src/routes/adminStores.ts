@@ -19,6 +19,11 @@ import {
     getOnboardingFunnel,
     getClusterDensity,
 } from '../controllers/admin/analyticsController';
+
+import {
+    getStoreEngagementAnalytics,
+    getPlatformEngagementAnalytics,
+} from  '../controllers/admin/engagementAdminController';
 import {
     protect,
     requireCorisioAdmin,
@@ -64,5 +69,11 @@ router.get('/boosts/ledger/:storeId',  checkPermission('view_boosts'), getBoostL
 router.get('/analytics/referrals',       checkPermission('access_reports'), getReferralAnalytics);
 router.get('/analytics/onboarding',      checkPermission('access_reports'), getOnboardingFunnel);
 router.get('/analytics/cluster-density', checkPermission('access_reports'), getClusterDensity);
+
+
+// ── Engagement analytics ─────────────────────────────────────────────────────
+// Who can access: analyst, admin, super_admin
+router.get('/analytics/engagement',               checkPermission('access_reports'), getPlatformEngagementAnalytics);
+router.get('/analytics/engagement/:storeId',      checkPermission('access_reports'), getStoreEngagementAnalytics);
 
 export default router;

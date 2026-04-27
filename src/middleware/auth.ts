@@ -35,7 +35,7 @@ declare global {
     namespace Express {
         interface Request {
             user?: AuthenticatedAdmin | AuthenticatedUser | any;
-            store?: import('../models/Store').IStore;
+            store?: import('../models/stores/Store').IStore;
         }
     }
 }
@@ -73,23 +73,15 @@ function decodeToken(token: string): DecodedToken {
         }
     }
 
-    throw new AppError('Invalid or expired token — please log in again', 401, 'UNAUTHORIZED');
+    throw new AppError('Invalid or expired token please log in again', 401, 'UNAUTHORIZED');
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PROTECT — main authentication middleware
-//
-// Handles three principals:
-//   1. corisio_admin  → CorisioAdmin model + getResolvedPermissions()
-//   2. user / driver  → User model (Go-Kart users)
-//   3. (legacy staff) → Staff model (Go-Kart admin panel)
-//
-// After this middleware, req.user is always populated with a `permissions`
-// array so that checkPermission() works uniformly across all principals.
-// ─────────────────────────────────────────────────────────────────────────────
+
 export const protect = asyncHandler(
     async (req: Request, _res: Response, next: NextFunction) => {
         const token = extractToken(req);
+
+        console.log('Extracted token:', token); // Debug log
 
         if (!token) {
             return next(
@@ -104,7 +96,8 @@ export const protect = asyncHandler(
             return next(err);
         }
 
-        // ── Branch 1: Corisio Admin ────────────────────────────────────────
+        console.log('Decoded token:', decoded);
+
         if (decoded.type === 'corisio_admin') {
             const admin = await CorisioAdmin.findById(decoded.id).select(
                 '+refreshToken'
@@ -139,7 +132,7 @@ export const protect = asyncHandler(
             return next();
         }
 
-
+        req.user = decoded
         return next();
     }
 );

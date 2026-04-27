@@ -1,35 +1,36 @@
 import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 
-export interface ICategory extends Document {
+export interface ISubCategory extends Document {
     label: string;
+    category: Types.ObjectId,
     icon?: string;
     isActive?: boolean;
     order?: number;
-    businessType: "goods" | "services" | "both";
     createdAt: Date;
     updatedAt: Date;
 }
 
-export interface ICategoryModel extends Model<ICategory> {
-    findActiveCategories(): Promise<ICategory[]>;
-    findByName(name: string): Promise<ICategory | null>;
-    findByPartialName(searchTerm: string): Promise<ICategory[]>;
+export interface ISubCategoryModel extends Model<ISubCategory> {
+    findActiveCategories(): Promise<ISubCategory[]>;
+    findByName(name: string): Promise<ISubCategory | null>;
+    findByPartialName(searchTerm: string): Promise<ISubCategory[]>;
     getCategoriesWithProductCount(): Promise<Array<{
-        category: ICategory;
+        subcategory: ISubCategory;
         productCount: number;
     }>>;
 }
 
-const CategorySchema: Schema<ICategory> = new Schema(
+const SubCategorySchema: Schema<ISubCategory> = new Schema(
     {
         label: {
             type: String,
-            required: [true, 'Category name is required'],
+            required: [true, 'Sub Category name is required'],
             unique: true,
             trim: true,
-            minlength: [2, 'Category name must be at least 2 characters long'],
-            maxlength: [100, 'Category name cannot exceed 100 characters']
+            minlength: [2, 'Sub Category name must be at least 2 characters long'],
+            maxlength: [100, 'Sub Category name cannot exceed 100 characters']
         },
+        category: { type: Schema.Types.ObjectId, ref: 'category' },
         icon: {
             type: String,
             required: false,
@@ -42,11 +43,6 @@ const CategorySchema: Schema<ICategory> = new Schema(
                 },
                 message: 'Icon cannot be empty'
             }
-        },
-        businessType: {
-            type: String,
-            enum: ['goods', 'services', 'both'],
-            required: [true, 'Business type is required']
         },
         isActive: {
             type: Boolean,
@@ -75,35 +71,28 @@ const CategorySchema: Schema<ICategory> = new Schema(
 );
 
 // Indexes
-CategorySchema.index({ label: 1 }, { unique: true });
-CategorySchema.index({ order: 1, label: 1 });
-CategorySchema.index({ isActive: 1, order: 1 });
-CategorySchema.index({ label: 'text' }, {
-    name: 'category_text_search',
+SubCategorySchema.index({ label: 1 }, { unique: true });
+SubCategorySchema.index({ order: 1, label: 1 });
+SubCategorySchema.index({ isActive: 1, order: 1 });
+SubCategorySchema.index({ label: 'text' }, {
+    name: 'subcategory_text_search',
     weights: { label: 10 }
 });
 
 // Static Methods
-CategorySchema.statics.findActiveCategories = function (): Promise<ICategory[]> {
+SubCategorySchema.statics.findActiveCategories = function (): Promise<ISubCategory[]> {
     return this.find({ isActive: true })
         .sort({ order: 1, label: 1 })
         .exec();
 };
 
-CategorySchema.statics.findByBusinessType = function (businessType: "goods" |"services" | "both"): Promise<ICategory | null> {
-    return this.findOne({
-        businessType: { $regex: new RegExp(`^${businessType}$`, 'i') },
-        isActive: true
-    }).exec();
-}
-
-CategorySchema.statics.findByName = function (label: string): Promise<ICategory | null> {
+SubCategorySchema.statics.findByName = function (label: string): Promise<ISubCategory | null> {
     return this.findOne({
         label: { $regex: new RegExp(`^${label}$`, 'i') }
     }).exec();
 };
 
-CategorySchema.statics.findByPartialName = function (searchTerm: string): Promise<ICategory[]> {
+SubCategorySchema.statics.findByPartialName = function (searchTerm: string): Promise<ISubCategory[]> {
     return this.find({
         label: { $regex: searchTerm, $options: 'i' },
         isActive: true
@@ -112,8 +101,8 @@ CategorySchema.statics.findByPartialName = function (searchTerm: string): Promis
         .exec();
 };
 
-CategorySchema.statics.getCategoriesWithProductCount = async function (): Promise<Array<{
-    category: ICategory;
+SubCategorySchema.statics.getCategoriesWithProductCount = async function (): Promise<Array<{
+    category: ISubCategory;
     productCount: number;
 }>> {
     const categories = await this.find({ isActive: true })
@@ -124,7 +113,7 @@ CategorySchema.statics.getCategoriesWithProductCount = async function (): Promis
     const Product = mongoose.model('Product');
 
     const categoriesWithCounts = await Promise.all(
-        categories.map(async (category: ICategory) => {
+        categories.map(async (category: ISubCategory) => {
             const productCount = await Product.countDocuments({
                 category: category._id,
                 isActive: true
@@ -141,11 +130,11 @@ CategorySchema.statics.getCategoriesWithProductCount = async function (): Promis
 };
 
 // Virtuals
-CategorySchema.virtual('displayName').get(function (this: ICategory) {
+SubCategorySchema.virtual('displayName').get(function (this: ISubCategory) {
     return this.label.charAt(0).toUpperCase() + this.label.slice(1);
 });
 
-CategorySchema.virtual('productCount', {
+SubCategorySchema.virtual('productCount', {
     ref: 'Product',
     localField: '_id',
     foreignField: 'category',
@@ -153,7 +142,7 @@ CategorySchema.virtual('productCount', {
 });
 
 // Pre-save middleware
-CategorySchema.pre<ICategory>('save', function (next) {
+SubCategorySchema.pre<ISubCategory>('save', function (next) {
     // Trim whitespace
     this.label = this.label.trim();
     if (this.icon) {
@@ -168,7 +157,7 @@ CategorySchema.pre<ICategory>('save', function (next) {
     next();
 });
 
-CategorySchema.pre<ICategory>('deleteOne', async function (next:any) {
+SubCategorySchema.pre<ISubCategory>('deleteOne', async function (next:any) {
     try {
 
         const Product = mongoose.model('Product');
@@ -184,10 +173,10 @@ CategorySchema.pre<ICategory>('deleteOne', async function (next:any) {
     }
 });
 
-CategorySchema.post<ICategory>('save', function (doc) {
-    console.log(`Category "${doc.label}" saved/updated`);
+SubCategorySchema.post<ISubCategory>('save', function (doc) {
+    console.log(`Subcategory "${doc.label}" saved/updated`);
 });
 
-const Category: ICategoryModel = mongoose.model<ICategory, ICategoryModel>('default_category', CategorySchema);
+const Category: ISubCategoryModel = mongoose.model<ISubCategory, ISubCategoryModel>('default_subcategory', SubCategorySchema);
 
 export default Category;

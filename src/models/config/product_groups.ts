@@ -1,52 +1,50 @@
 import mongoose, { Schema, Document, Model, Types } from 'mongoose';
 
-export interface ICategory extends Document {
+export interface ProductGroup extends Document {
     label: string;
+    category: Types.ObjectId,
+    sub_category: Types.ObjectId,
+    spec: Types.ObjectId,
     icon?: string;
-    isActive?: boolean;
+    isActive: boolean;
     order?: number;
-    businessType: "goods" | "services" | "both";
     createdAt: Date;
     updatedAt: Date;
 }
 
-export interface ICategoryModel extends Model<ICategory> {
-    findActiveCategories(): Promise<ICategory[]>;
-    findByName(name: string): Promise<ICategory | null>;
-    findByPartialName(searchTerm: string): Promise<ICategory[]>;
+export interface ProductGroupModel extends Model<ProductGroup> {
+    findActiveCategories(): Promise<ProductGroup[]>;
+    findByName(name: string): Promise<ProductGroup | null>;
+    findByPartialName(searchTerm: string): Promise<ProductGroup[]>;
     getCategoriesWithProductCount(): Promise<Array<{
-        category: ICategory;
+        subcategory: ProductGroup;
         productCount: number;
     }>>;
 }
 
-const CategorySchema: Schema<ICategory> = new Schema(
+const productGroup: Schema<ProductGroup> = new Schema(
     {
         label: {
             type: String,
-            required: [true, 'Category name is required'],
+            required: [true, 'Sub Category name is required'],
             unique: true,
             trim: true,
-            minlength: [2, 'Category name must be at least 2 characters long'],
-            maxlength: [100, 'Category name cannot exceed 100 characters']
+            minlength: [2, 'Sub Category name must be at least 2 characters long'],
+            maxlength: [100, 'Sub Category name cannot exceed 100 characters']
         },
+        category: { type: Schema.Types.ObjectId, ref: 'category' },
+        sub_category: { type: Schema.Types.ObjectId, ref: 'Subcategory' },
+        spec: { type: mongoose.SchemaTypes.ObjectId, ref: "default_spec" },
         icon: {
             type: String,
             required: false,
             trim: true,
             validate: {
                 validator: function (value: string): boolean {
-                    // You can adjust this validation based on your icon system
-                    // This could be a URL, font-awesome class, or custom icon name
                     return !!(value && value.length > 0);
                 },
                 message: 'Icon cannot be empty'
             }
-        },
-        businessType: {
-            type: String,
-            enum: ['goods', 'services', 'both'],
-            required: [true, 'Business type is required']
         },
         isActive: {
             type: Boolean,
@@ -75,35 +73,28 @@ const CategorySchema: Schema<ICategory> = new Schema(
 );
 
 // Indexes
-CategorySchema.index({ label: 1 }, { unique: true });
-CategorySchema.index({ order: 1, label: 1 });
-CategorySchema.index({ isActive: 1, order: 1 });
-CategorySchema.index({ label: 'text' }, {
-    name: 'category_text_search',
+productGroup.index({ label: 1 }, { unique: true });
+productGroup.index({ order: 1, label: 1 });
+productGroup.index({ isActive: 1, order: 1 });
+productGroup.index({ label: 'text' }, {
+    name: 'subcategory_text_search',
     weights: { label: 10 }
 });
 
 // Static Methods
-CategorySchema.statics.findActiveCategories = function (): Promise<ICategory[]> {
+productGroup.statics.findActiveCategories = function (): Promise<ProductGroup[]> {
     return this.find({ isActive: true })
         .sort({ order: 1, label: 1 })
         .exec();
 };
 
-CategorySchema.statics.findByBusinessType = function (businessType: "goods" |"services" | "both"): Promise<ICategory | null> {
-    return this.findOne({
-        businessType: { $regex: new RegExp(`^${businessType}$`, 'i') },
-        isActive: true
-    }).exec();
-}
-
-CategorySchema.statics.findByName = function (label: string): Promise<ICategory | null> {
+productGroup.statics.findByName = function (label: string): Promise<ProductGroup | null> {
     return this.findOne({
         label: { $regex: new RegExp(`^${label}$`, 'i') }
     }).exec();
 };
 
-CategorySchema.statics.findByPartialName = function (searchTerm: string): Promise<ICategory[]> {
+productGroup.statics.findByPartialName = function (searchTerm: string): Promise<ProductGroup[]> {
     return this.find({
         label: { $regex: searchTerm, $options: 'i' },
         isActive: true
@@ -112,8 +103,8 @@ CategorySchema.statics.findByPartialName = function (searchTerm: string): Promis
         .exec();
 };
 
-CategorySchema.statics.getCategoriesWithProductCount = async function (): Promise<Array<{
-    category: ICategory;
+productGroup.statics.getCategoriesWithProductCount = async function (): Promise<Array<{
+    category: ProductGroup;
     productCount: number;
 }>> {
     const categories = await this.find({ isActive: true })
@@ -124,7 +115,7 @@ CategorySchema.statics.getCategoriesWithProductCount = async function (): Promis
     const Product = mongoose.model('Product');
 
     const categoriesWithCounts = await Promise.all(
-        categories.map(async (category: ICategory) => {
+        categories.map(async (category: ProductGroup) => {
             const productCount = await Product.countDocuments({
                 category: category._id,
                 isActive: true
@@ -141,11 +132,11 @@ CategorySchema.statics.getCategoriesWithProductCount = async function (): Promis
 };
 
 // Virtuals
-CategorySchema.virtual('displayName').get(function (this: ICategory) {
+productGroup.virtual('displayName').get(function (this: ProductGroup) {
     return this.label.charAt(0).toUpperCase() + this.label.slice(1);
 });
 
-CategorySchema.virtual('productCount', {
+productGroup.virtual('productCount', {
     ref: 'Product',
     localField: '_id',
     foreignField: 'category',
@@ -153,7 +144,7 @@ CategorySchema.virtual('productCount', {
 });
 
 // Pre-save middleware
-CategorySchema.pre<ICategory>('save', function (next) {
+productGroup.pre<ProductGroup>('save', function (next) {
     // Trim whitespace
     this.label = this.label.trim();
     if (this.icon) {
@@ -168,7 +159,7 @@ CategorySchema.pre<ICategory>('save', function (next) {
     next();
 });
 
-CategorySchema.pre<ICategory>('deleteOne', async function (next:any) {
+productGroup.pre<ProductGroup>('deleteOne', async function (next:any) {
     try {
 
         const Product = mongoose.model('Product');
@@ -184,10 +175,10 @@ CategorySchema.pre<ICategory>('deleteOne', async function (next:any) {
     }
 });
 
-CategorySchema.post<ICategory>('save', function (doc) {
-    console.log(`Category "${doc.label}" saved/updated`);
+productGroup.post<ProductGroup>('save', function (doc) {
+    console.log(`Corisio_Group "${doc.label}" saved/updated`);
 });
 
-const Category: ICategoryModel = mongoose.model<ICategory, ICategoryModel>('default_category', CategorySchema);
+const Corisio_Group: ProductGroupModel = mongoose.model<ProductGroup, ProductGroupModel>('default_group', productGroup);
 
-export default Category;
+export default Corisio_Group;

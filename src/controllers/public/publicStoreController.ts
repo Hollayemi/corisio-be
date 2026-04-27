@@ -12,8 +12,8 @@ import { isBoostActive } from '../../services/rankingService';
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants
 // ─────────────────────────────────────────────────────────────────────────────
-const DEFAULT_RADIUS_KM   = 5;
-const MAX_RADIUS_KM       = 50;
+const DEFAULT_RADIUS_KM   = 500;
+const MAX_RADIUS_KM       = 50000;
 const DEFAULT_LIMIT       = 20;
 const MAX_LIMIT           = 50;
 const DEFAULT_PAGE        = 1;

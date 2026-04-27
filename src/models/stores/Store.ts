@@ -9,13 +9,6 @@ interface FCMToken {
     addedAt: Date;
 }
 
-interface OpeningHour {
-    day: 'Mon' | 'Tue' | 'Wed' | 'Thu' | 'Fri' | 'Sat' | 'Sun';
-    open: string;
-    close: string;
-    isClosed: boolean;
-}
-
 interface StoreBoost {
     level: 'none' | 'bronze' | 'silver' | 'gold';
     activatedAt?: Date;
@@ -24,7 +17,7 @@ interface StoreBoost {
     source: 'referral' | 'admin_grant' | 'purchase';
 }
 
-interface CategoryType {
+export interface CategoryType {
     main: [string],
     subCategories: [string],
     groups: [string],
@@ -33,9 +26,10 @@ interface CategoryType {
 export interface IStore extends Document {
     // Identity
     storeName: string;
-    ownerName: string;
+    ownerInfo: Types.ObjectId | string;
     phoneNumber: string;
     category: CategoryType;
+    profile_image?: string;
 
     // Location
     address: {
@@ -50,7 +44,15 @@ export interface IStore extends Document {
 
     // Optional profile
     photos: string[];
-    openingHours: OpeningHour[];
+    openingHours: {
+        monday: { isset: boolean; from: string; to: string };
+        tuesday: { isset: boolean; from: string; to: string };
+        wednesday: { isset: boolean; from: string; to: string };
+        thursday: { isset: boolean; from: string; to: string };
+        friday: { isset: boolean; from: string; to: string };
+        saturday: { isset: boolean; from: string; to: string };
+        sunday: { isset: boolean; from: string; to: string };
+    };
     description?: string;
     website?: string;
     socialLinks?: { platform: string; url: string }[];
@@ -62,7 +64,7 @@ export interface IStore extends Document {
     refreshToken?: string;
 
     // Onboarding & Verification
-    onboardingStatus: 'registered' | 'phone_verified' | 'profile_complete' | 'verification' | 'verified' | 'rejected' | 'suspended' ;
+    onboardingStatus: 'registered' | 'phone_verified' | 'profile_complete' | 'verification' | 'verified' | 'rejected' | 'suspended';
     profileCompletionScore: number;
     verifiedAt?: Date;
     verifiedBy?: Types.ObjectId;
@@ -111,11 +113,12 @@ const StoreSchema = new Schema<IStore>(
             trim: true,
             maxlength: [100, 'Store name cannot exceed 100 characters']
         },
-        ownerName: {
-            type: String,
-            required: [true, 'Owner name is required'],
+        ownerInfo: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: [true, 'Owner id is required'],
             trim: true,
-            maxlength: [80, 'Owner name cannot exceed 80 characters']
+            maxlength: [80, 'Owner id cannot exceed 80 characters']
         },
         phoneNumber: {
             type: String,
@@ -125,10 +128,11 @@ const StoreSchema = new Schema<IStore>(
             index: true,
             match: [/^[0-9+\-\s()]+$/, 'Please provide a valid phone number']
         },
+        profile_image: { type: String, trim: true },
         category: {
-            main: {type: Array, required: [true, "You must select a category"]},
-            subCategories: {type: Array, required: [false, ""]},
-            groups: {type: Array, required: [false, ""]},
+            main: { type: Array, required: [true, "You must select a category"] },
+            subCategories: { type: Array, required: [false, ""] },
+            groups: { type: Array, required: [false, ""] },
         },
         address: {
             raw: { type: String, required: [true, 'Address is required'], trim: true },
@@ -148,14 +152,47 @@ const StoreSchema = new Schema<IStore>(
         },
 
         photos: [{ type: String }],
-        openingHours: [
-            {
-                day: { type: String, enum: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] },
-                open: { type: String },
-                close: { type: String },
-                isClosed: { type: Boolean, default: false }
-            }
-        ],
+        openingHours: {
+            type: Object,
+            default: {
+                monday: {
+                    isset: true,
+                    from: '8:00',
+                    to: '13: 00',
+                },
+
+                tuesday: {
+                    isset: true,
+                    from: '8:00',
+                    to: '13: 00',
+                },
+                wednesday: {
+                    isset: true,
+                    from: '8:00',
+                    to: '13: 00',
+                },
+                thursday: {
+                    isset: true,
+                    from: '8:00',
+                    to: '13: 00',
+                },
+                friday: {
+                    isset: true,
+                    from: '8:00',
+                    to: '13: 00',
+                },
+                saturday: {
+                    isset: true,
+                    from: '8:00',
+                    to: '13: 00',
+                },
+                sunday: {
+                    isset: false,
+                    from: '12:00',
+                    to: '13:00',
+                },
+            },
+        },
         description: { type: String, maxlength: [500, 'Description cannot exceed 500 characters'] },
         website: { type: String, trim: true },
         socialLinks: [{ platform: String, url: String }],

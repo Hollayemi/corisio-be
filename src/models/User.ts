@@ -25,10 +25,8 @@ export interface IUser extends Document {
     password?: string;
     phoneNumber: string;
     residentArea: string;
-    avatar?: string;
-    role: 'user' | 'admin' | 'driver';
-
-    driverId: Types.ObjectId; // Reference to Driver model if role is 'driver'
+    profile_image?: string;
+    role: 'user' | 'admin';
 
     isPhoneVerified: boolean;
     isEmailVerified: boolean;
@@ -98,20 +96,15 @@ const UserSchema = new Schema<IUser>({
         required: [true, 'Please add a resident area'],
         default: 'Lagos'
     },
-    avatar: {
+    profile_image: {
         type: String,
         default: null
     },
     role: {
         type: String,
-        enum: ['user', 'admin', 'driver'],
+        enum: ['store_owner','user', 'admin', 'driver'],
         default: 'user',
         index: true
-    },
-    driverId: {
-        type: Schema.Types.ObjectId,
-        ref: 'Driver',
-        default: null
     },
     isPhoneVerified: {
         type: Boolean,

@@ -1,11 +1,15 @@
 import { Request, Response, NextFunction } from 'express';
-import Store, { IStore } from '../../models/Store';
+import Store, { IStore } from '../../models/stores/Store';
+import User, { IUser } from '../../models/User';
 import { AppError, asyncHandler, AppResponse } from '../../middleware/error';
 import { calculateProfileScore } from '../../services/referralService';
+const { default: mongoose } = require('mongoose');
+const { cloudinary } = require('../../utils/cloudinary');
 
 // ─────────────────────────────────────────────
 // Helper — send token response
 // ─────────────────────────────────────────────
+
 const sendTokenResponse = (
     store: IStore,
     statusCode: number,
@@ -29,7 +33,7 @@ const sendTokenResponse = (
                 store: {
                     id: store._id,
                     storeName: store.storeName,
-                    ownerName: store.ownerName,
+                    ownerInfo: store.ownerInfo,
                     phoneNumber: store.phoneNumber,
                     onboardingStatus: store.onboardingStatus,
                     referralCode: store.referralCode,
@@ -50,21 +54,38 @@ const sendTokenResponse = (
 // ─────────────────────────────────────────────
 export const sendOTP = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
-        const { phoneNumber } = req.body;
+        const { phoneNumber, type, category } = req.body;
+
+        console.log(req.body)
 
         if (!phoneNumber) {
             return next(new AppError('Phone number is required', 400));
         }
 
+   
+        if (type === "create-account" && !category) {
+            return next(new AppError('Category is required', 400));
+        }
+
         let store = await Store.findOne({ phoneNumber }).select('+otp +otpExpiry');
+        let getUser = await User.findOne({ phoneNumber }).select('+otp +otpExpiry');
+
+        if(category && store){
+                return next(new AppError('Phone number already used', 400));
+        }
 
         if (!store) {
-            // Create minimal stub record
+            const user = !getUser ? await new User({
+                name: "Guest",
+                phoneNumber,
+                role: 'store_owner',
+            }).save() : getUser;
+
             store = await Store.create({
                 phoneNumber,
                 storeName: `Store_${phoneNumber.slice(-6)}`,
-                ownerName: 'Pending',
-                category: undefined,
+                ownerInfo: user._id,
+                category: typeof category === "string" ? JSON.parse(category) : category,
                 address: {
                     raw: 'Pending',
                     lga: 'Pending',
@@ -231,7 +252,7 @@ export const registerProfile = asyncHandler(
 
         const {
             storeName,
-            ownerName,
+            ownerInfo,
             category,
             address,
             referralCode: incomingReferralCode,
@@ -242,12 +263,20 @@ export const registerProfile = asyncHandler(
 
         // Apply fields
         if (storeName) store.storeName = storeName;
-        if (ownerName) store.ownerName = ownerName;
-        if (category) store.category = category;
+        if (category) store.category = JSON.parse(category);
         if (address) store.address = address;
         if (description) store.description = description;
         if (openingHours) store.openingHours = openingHours;
         if (website) store.website = website;
+
+        // find the user and update the name if ownerInfo is provided
+        if (ownerInfo) {
+            const user = await User.findById(store._id);
+            if (user) {
+                user.name = ownerInfo;
+                await user.save();
+            }
+        }
 
         // Handle referral code at registration
         if (incomingReferralCode && !store.referredBy) {
@@ -281,13 +310,12 @@ export const registerProfile = asyncHandler(
         // Advance status
         const requiredFieldsPresent =
             store.storeName &&
-            store.ownerName !== 'Pending' &&
             store.category &&
             store.address?.raw !== 'Pending';
 
         if (requiredFieldsPresent && store.onboardingStatus === 'phone_verified') {
             store.onboardingStatus = 'profile_complete';
-        }else{
+        } else {
             store.onboardingStatus = 'verification';
         }
 
@@ -315,11 +343,10 @@ export const registerProfile = asyncHandler(
 // ─────────────────────────────────────────────
 export const getMe = asyncHandler(
     async (req: Request, res: Response, next: NextFunction) => {
-        const store = await Store.findById((req as any).store?.id).populate('category', 'name');
-
+        const store = await Store.findById((req as any).store?.id).populate('ownerInfo');
+        const user = await User.findById(store?.ownerInfo);
         if (!store) return next(new AppError('Store not found', 404));
-
-        (res as AppResponse).data({ store }, 'Store retrieved');
+        (res as AppResponse).data({ store, user }, 'Store retrieved');
     }
 );
 
@@ -335,12 +362,12 @@ export const getProfileCompletion = asyncHandler(
 
         const checklist = [
             { field: 'storeName', label: 'Store Name', complete: !!store.storeName, points: 15, required: true },
-            { field: 'ownerName', label: 'Owner Name', complete: store.ownerName !== 'Pending' && !!store.ownerName, points: 10, required: true },
+            { field: 'ownerInfo', label: 'Owner Name', complete: store.ownerInfo !== 'Pending' && !!store.ownerInfo, points: 10, required: true },
             { field: 'phoneNumber', label: 'Phone (verified)', complete: store.isPhoneVerified, points: 10, required: true },
             { field: 'category', label: 'Category', complete: !!store.category, points: 10, required: true },
             { field: 'address', label: 'Address', complete: store.address?.raw !== 'Pending' && !!store.address?.raw, points: 15, required: true },
             { field: 'photos', label: 'Store Photo', complete: store.photos?.length > 0, points: 15, required: false },
-            { field: 'openingHours', label: 'Opening Hours', complete: store.openingHours?.length > 0, points: 10, required: false },
+            // { field: 'openingHours', label: 'Opening Hours', complete: store.openingHours > 0, points: 10, required: false },
             { field: 'description', label: 'Description', complete: !!store.description, points: 10, required: false },
             { field: 'website', label: 'Website', complete: !!store.website, points: 5, required: false }
         ];
@@ -355,3 +382,62 @@ export const getProfileCompletion = asyncHandler(
         );
     }
 );
+
+
+export const uploadStorePhoto = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+
+        const { image, state = 'add', isVideo, type = 'gallery' } = req.body;
+
+        if (!req.store) return next(new AppError('Unauthorized', 401));
+
+        const { _id } = req.store;
+
+        let url;
+
+        if (!image && state === 'add')
+            return next(new AppError('Select image to upload', 404));
+
+        const folder: Record<string, any> = {
+            folder: `corisio/store/${_id}/${type}`,
+            public_id: `${_id}`,
+            overwrite: true,
+        };
+
+        if (isVideo) {
+            folder.resource_type = 'video';
+        }
+
+        if (state === 'add') {
+            await cloudinary.uploader.upload(image, folder).then((uploadResponse: any) => {
+                url = uploadResponse.url;
+            });
+        }
+
+        if (state === 'remove') {
+            url = null;
+        }
+        console.log({ url, type })
+        if (type === 'store_image') {
+            await Store.findOneAndUpdate(
+                { _id },
+                {
+                    $set: { profile_image: url },
+                },
+                { new: true }
+            );
+        } else {
+            await Store.findOneAndUpdate({ _id },
+                {
+                    $push: { photos: url },
+                },
+                { new: true }
+            );
+        }
+
+        return res.status(200).json({
+            message: `${isVideo ? 'Video' : 'Image'} uploaded successfully`,
+            url,
+            type: 'success',
+        });
+    });

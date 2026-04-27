@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import Store from '../../models/Store';
+import Store from '../../models/stores/Store';
 import BoostLedger from '../../models/BoostLedger';
 import logger from '../../utils/logger';
 

@@ -13,8 +13,8 @@ const router = Router();
 router.use(protectStore);
 
 // Referral
-router.get('/referral/my-code', requireVerifiedStore, getMyReferralCode);
-router.post('/referral/send-sms', requireVerifiedStore, sendReferralSMS);
+router.get('/referral/my-code', getMyReferralCode);
+router.post('/referral/send-sms', sendReferralSMS);
 router.get('/referral/my-referrals', getMyReferrals);
 router.get('/referral/stats', getReferralStats);
 

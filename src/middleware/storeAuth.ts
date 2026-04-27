@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
-import Store, { IStore } from '../models/Store';
+import Store, { IStore } from '../models/stores/Store';
 import { AppError, asyncHandler } from './error';
 
 // Extend Express Request to include store
@@ -19,14 +19,18 @@ export const protectStore = asyncHandler(
     async (req: Request, _res: Response, next: NextFunction) => {
         let token: string | undefined;
 
-        if (
+        // console.log('Checking store auth...', req);
+
+        if (req.cookies?.storeToken) {
+            token = req.cookies.storeToken;
+        } else if (
             req.headers.authorization &&
             req.headers.authorization.startsWith('Bearer')
         ) {
             token = req.headers.authorization.split(' ')[1];
-        } else if (req.cookies?.storeToken) {
-            token = req.cookies.storeToken;
         }
+
+        console.log({ token });
 
         if (!token) {
             return next(new AppError('Not authorized — please log in', 401, 'UNAUTHORIZED'));
@@ -41,7 +45,7 @@ export const protectStore = asyncHandler(
             return next(new AppError('Invalid token type', 401, 'UNAUTHORIZED'));
         }
 
-        const store = await Store.findById(decoded.id);
+        const store = await Store.findById(decoded.id).populate('ownerInfo', 'name email phone');
 
         if (!store) {
             return next(new AppError('Store no longer exists', 401));
@@ -56,6 +60,9 @@ export const protectStore = asyncHandler(
         }
 
         req.store = store;
+        req.user = store.ownerInfo as any; // attach owner info to req.user for convenience
+
+
         next();
     }
 );
@@ -86,14 +93,17 @@ export const ifStoreToken = asyncHandler(
     async (req: Request, _res: Response, next: NextFunction) => {
         let token: string | undefined;
 
-        if (
+        if (req.cookies?.storeToken) {
+            token = req.cookies.storeToken;
+        } else if (
             req.headers.authorization &&
             req.headers.authorization.startsWith('Bearer')
         ) {
             token = req.headers.authorization.split(' ')[1];
-        } else if (req.cookies?.storeToken) {
-            token = req.cookies.storeToken;
         }
+
+
+        console.log({ token });
 
         if (!token) return next();
 

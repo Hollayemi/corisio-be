@@ -1,21 +1,18 @@
 import mongoose from 'mongoose';
-import Store from '../models/Store';
+import Store from '../models/stores/Store';
 import { rankStores, RankableStore } from './rankingService';
 import { getRankingConfig } from '../config/rankingConfig';
 import { PipelineStage } from 'mongoose';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Query parameters after validation
-// ─────────────────────────────────────────────────────────────────────────────
 export interface DiscoveryParams {
     lat: number;
     lng: number;
-    radiusMetres: number;   // already converted from km by controller
+    radiusMetres: number;
     search?: string;
-    category?: string;      // category ObjectId string
+    category?: string;
     sortBy: 'distance' | 'boost' | 'newest';
     boostedOnly: boolean;
-    recentDays?: number;    // filter: stores verified within last N days
+    recentDays?: number;
     page: number;
     limit: number;
 }
@@ -56,7 +53,7 @@ interface RawStoreResult {
         raw: string;
         lga: string;
         state: string;
-        coordinates: { type: string; coordinates: [number, number] };
+        coordinates: { type: "Point"; coordinates: [number, number] };
     };
     phoneNumber: string;
     openingHours: object[];
@@ -89,7 +86,7 @@ interface RankableRawStore extends RankableStore {
 // ─────────────────────────────────────────────────────────────────────────────
 // Build the $geoNear aggregation pipeline
 // ─────────────────────────────────────────────────────────────────────────────
-function buildGeoNearStage(params: DiscoveryParams) {
+function buildGeoNearStage(params: DiscoveryParams): PipelineStage {
     // Base filter — applied inside $geoNear for index efficiency
     // This avoids a full collection scan: Mongo uses the 2dsphere index
     // to filter by distance BEFORE any further matching
@@ -112,15 +109,15 @@ function buildGeoNearStage(params: DiscoveryParams) {
     return {
         $geoNear: {
             near: {
-                type: 'Point',
-                coordinates: [params.lng, params.lat],
+                type: 'Point' as const,
+                coordinates: [params.lng, params.lat] as [number, number],
             },
             distanceField: 'dist.calculated',
             maxDistance: params.radiusMetres,
             spherical: true,
             query: nearQuery,
         },
-    };
+    } as PipelineStage;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -168,6 +165,7 @@ export async function discoverStores(params: DiscoveryParams): Promise<{
     totalPages: number;
 }> {
     const pipeline: PipelineStage[] = [
+     
         buildGeoNearStage(params),
         // Populate category name (needed for category filter + public response)
         {
@@ -178,7 +176,7 @@ export async function discoverStores(params: DiscoveryParams): Promise<{
                 as: 'category',
             },
         },
-        { $unwind: { path: '$category'} },
+        { $unwind: { path: '$category', preserveNullAndEmptyArrays: true} },
     ];
 
     // Category and search filter stage
@@ -204,6 +202,8 @@ export async function discoverStores(params: DiscoveryParams): Promise<{
     if (raw.length === 0) {
         return { stores: [], total: 0, page: params.page, limit: params.limit, totalPages: 0 };
     }
+
+    console.log({raw, count: raw.length, sample: raw[0]});
 
     // Attach distanceMetres for ranking compatibility
     const rankable: RankableRawStore[] = raw.map((s) => ({
@@ -271,13 +271,13 @@ export async function getPublicStoreById(storeId: string): Promise<RankableRawSt
                 as: 'category',
             },
         },
-        { $unwind: { path: '$category'} },
+        { $unwind: { path: '$category', preserveNullAndEmptyArrays: true} },
         {
             $project: {
                 ...PUBLIC_STORE_PROJECTION,
-                'category._id': 1,
-                'category.name': 1,
-                'category.icon': 1,
+                // 'category._id': 1,
+                // 'category.name': 1,
+                // 'category.icon': 1,
                 verifiedAt: 1,   // registration / verification date for public profile
             },
         },

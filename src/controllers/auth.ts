@@ -1,9 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import User, { IUser } from '../models/User';
-import Driver, { IDriver } from '../models/Driver';
 import { AppError, asyncHandler, AppResponse } from '../middleware/error';
 import jwt from 'jsonwebtoken';
-import bcrypt from 'bcryptjs';
+const { cloudinary } = require('../utils/cloudinary');
 
 const sendTokenResponse = (user: IUser, statusCode: number, res: AppResponse, message: string) => {
     const token = user.getSignedJwtToken();
@@ -30,7 +29,7 @@ const sendTokenResponse = (user: IUser, statusCode: number, res: AppResponse, me
                     email: user.email,
                     phoneNumber: user.phoneNumber,
                     role: user.role,
-                    avatar: user.avatar,
+                    profile_image: user.profile_image,
                     isPhoneVerified: user.isPhoneVerified,
                     referralCode: user.referralCode
                 },
@@ -60,8 +59,6 @@ export const login = asyncHandler(async (req: Request, res: Response, next: Next
     if (!user) {
         return next(new AppError('No user found with this phone number', 404));
     }
-
-
 
     // If user is admin, verify password
     // if (user.role === 'admin') {
@@ -143,7 +140,7 @@ export const verifyLoginOTP = asyncHandler(async (req: Request, res: Response, n
 // @route   POST /api/v1/auth/send-otp
 // @access  Public
 export const sendOTP = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-    const { phoneNumber, residentArea } = req.body;
+    const { phoneNumber } = req.body;
 
     if (!phoneNumber) {
         return next(new AppError('Please provide phone number', 400));
@@ -154,8 +151,7 @@ export const sendOTP = asyncHandler(async (req: Request, res: Response, next: Ne
     if (!user) {
         user = await User.create({
             phoneNumber,
-            residentArea,
-            name: `User${phoneNumber.slice(-10)}`
+            name: `Guest`
         });
     }
 
@@ -190,7 +186,7 @@ export const verifyOTP = asyncHandler(async (req: Request, res: Response, next: 
         return next(new AppError('Please provide phone number and OTP', 400));
     }
 
-    const user = await User.findOne({ phoneNumber }).select('+otp +otpExpiry').populate('driverId');
+    const user = await User.findOne({ phoneNumber }).select('+otp +otpExpiry')
 
     if (!user) {
         return next(new AppError('User not found', 404));
@@ -247,15 +243,17 @@ export const resendOTP = asyncHandler(async (req: Request, res: Response, next: 
 // @route   PUT /api/v1/auth/complete-profile
 // @access  Private
 export const completeProfile = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
-    const { name, email, referredBy } = req.body;
+    const { name, email, phoneNumber, referredBy } = req.body;
+
+    console.log(req.user);
 
     if (!req.user) {
         return next(new AppError('Not authenticated', 401));
     }
 
-    console.log(req.user);
+    console.log(req.store);
 
-    const user = await User.findById(req.user.id);
+    const user = await User.findById(req.user.ownerInfo || req.user.id);
 
     if (!user) {
         return next(new AppError('User not found', 404));
@@ -264,6 +262,7 @@ export const completeProfile = asyncHandler(async (req: Request, res: Response, 
     // Update profile
     if (name) user.name = name;
     if (email) user.email = email;
+    if (phoneNumber) user.phoneNumber = phoneNumber;
 
     // Handle referral
     if (referredBy && !user.referredBy) {
@@ -283,7 +282,7 @@ export const completeProfile = asyncHandler(async (req: Request, res: Response, 
                 email: user.email,
                 phoneNumber: user.phoneNumber,
                 role: user.role,
-                avatar: user.avatar,
+                profile_image: user.profile_image,
                 isPhoneVerified: user.isPhoneVerified,
                 referralCode: user.referralCode
             }
@@ -340,6 +339,7 @@ export const updateBiometricSettings = asyncHandler(async (req: Request, res: Re
 // @route   GET /api/v1/auth/me
 // @access  Private
 export const getMe = asyncHandler(async (req: Request, res: Response, next: NextFunction) => {
+    console.log("req.user", req.user)
     if (!req.user) {
         return next(new AppError('Not authenticated', 401));
     }
@@ -426,3 +426,51 @@ export const getSearchHistory = asyncHandler(async (req: Request, res: Response,
 
     (res as AppResponse).data({ searchHistory: user.searchHistory, popularSearches }, 'Search history retrieved successfully');
 });
+
+
+export const uploadUserPhoto = asyncHandler(
+    async (req: Request, res: Response, next: NextFunction) => {
+
+        const { image, state = 'add' } = req.body;
+
+        if (!req.user) return next(new AppError('Unauthorized', 401));
+
+        const { _id } = req.user;
+
+        let url;
+
+        if (!image && state === 'add')
+            return next(new AppError('Select image to upload', 404));
+
+        const folder: Record<string, any> = {
+            folder: `corisio/user}`,
+            public_id: `${_id}`,
+            overwrite: true,
+        };
+
+        if (state === 'add') {
+            await cloudinary.uploader.upload(image, folder).then((uploadResponse: any) => {
+                url = uploadResponse.url;
+            });
+        }
+
+        if (state === 'remove') {
+            url = null;
+        }
+        console.log({ url })
+
+        await User.findOneAndUpdate(
+            { _id },
+            {
+                $set: { profile_image: url },
+            },
+            { new: true }
+        );
+
+
+        return res.status(200).json({
+            message: `Image uploaded successfully`,
+            url,
+            type: 'success',
+        });
+    });

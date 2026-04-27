@@ -1,4 +1,4 @@
-import Store, { IStore } from '../models/Store';
+import Store, { IStore } from '../models/stores/Store';
 import Referral, { IReferral } from '../models/Referral';
 import BoostLedger from '../models/BoostLedger';
 import logger from '../utils/logger';
@@ -257,7 +257,7 @@ export async function assignBoost(
 export function calculateProfileScore(store: Partial<IStore>): number {
     const weights: Record<string, number> = {
         storeName: 15,
-        ownerName: 10,
+        ownerInfo: 10,
         phoneNumber: 10,
         category: 10,
         address: 15,
@@ -269,7 +269,7 @@ export function calculateProfileScore(store: Partial<IStore>): number {
 
     let score = 0;
     if (store.storeName) score += weights.storeName;
-    if (store.ownerName) score += weights.ownerName;
+    if (store.ownerInfo) score += weights.ownerInfo;
     if (store.phoneNumber) score += weights.phoneNumber;
     if (store.category) score += weights.category;
     if (store.address?.raw) score += weights.address;

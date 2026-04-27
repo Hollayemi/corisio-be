@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import Store from '../../models/Store';
+import Store from '../../models/stores/Store';
 import Referral from '../../models/Referral';
 import BoostLedger from '../../models/BoostLedger';
 import { AppError, asyncHandler, AppResponse } from '../../middleware/error';

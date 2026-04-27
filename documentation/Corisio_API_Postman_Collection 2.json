@@ -1,0 +1,2479 @@
+{
+  "info": {
+    "_postman_id": "corisio-api-v2",
+    "name": "Corisio API \u2014 Full Platform",
+    "description": "Complete API documentation for the Corisio platform.\n\nCovers: store auth & onboarding, referrals & boosts, public discovery, product visibility engine, engagement tracking, and admin tools.\n\n## Base URL\n`{{baseUrl}}` = `http://localhost:5000/api/v1`\n\n## Authentication\nTwo token types:\n- **Store JWT** (`storeToken`) \u2014 for store owners. Set after `POST /stores/auth/verify-otp`.\n- **Admin JWT** (`adminToken`) \u2014 for Corisio staff. Set after admin login.\n\n## Response Format\nAll responses:\n```json\n{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"...\",\n  \"data\": { ... },\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}\n```\n\n## Onboarding Flow\n1. `POST /stores/auth/send-otp`\n2. `POST /stores/auth/verify-otp` \u2192 saves `storeToken`\n3. `POST /stores/register` \u2192 submit profile\n4. Admin verifies \u2192 boost auto-assigned\n5. Store can now list products\n\n## Product Visibility Flow\n1. Admin seeds categories/subcategories/product groups (config system)\n2. Verified store creates products \u2192 `POST /stores/products`\n3. Public users discover via `GET /public/products/search`",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:5000/api/v1",
+      "type": "string"
+    },
+    {
+      "key": "storeToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "storeId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "categoryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "subCategoryId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "productGroupId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "referralCode",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "referralId",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "\ud83d\udd10 Store Auth",
+      "description": "OTP-based authentication for store owners. No password needed \u2014 phone number + OTP only.",
+      "item": [
+        {
+          "name": "Send OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('OTP sent', () => pm.expect(res.success).to.be.true);",
+                  "if (res.data && res.data.otp) {",
+                  "  pm.collectionVariables.set('otp', res.data.otp);",
+                  "  console.log('DEV OTP captured:', res.data.otp);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348012345678\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/auth/send-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "auth",
+                "send-otp"
+              ]
+            },
+            "description": "Sends a 6-digit OTP to the provided phone number via SMS (Twilio).\n\nIf the phone number has no existing store record, a stub record is created automatically.\n\n**In development mode**, the OTP is returned in the response body for testing.\n\n**Rate limiting:** Max 3 OTP requests per phone per 10 minutes.\n\n**Expected behaviour:**\n- New number \u2192 creates stub store \u2192 sends OTP\n- Existing number \u2192 resends OTP\n\n**Response includes** (dev only):\n```json\n{\n  \"phoneNumber\": \"+2348012345678\",\n  \"message\": \"OTP sent successfully\",\n  \"otp\": \"123456\"\n}\n```"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 OTP Sent (Dev)",
+              "originalRequest": {
+                "method": "POST",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"phoneNumber\": \"+2348012345678\"\n}"
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"OTP sent\",\n  \"data\": {\n    \"phoneNumber\": \"+2348012345678\",\n    \"message\": \"OTP sent successfully\",\n    \"otp\": \"482910\"\n  },\n  \"timestamp\": \"2024-11-20T09:00:00.000Z\"\n}"
+            },
+            {
+              "name": "400 \u2014 Missing Phone",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Phone number is required\",\n  \"timestamp\": \"2024-11-20T09:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Verify OTP",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Token returned', () => pm.expect(res.data.token).to.be.a('string'));",
+                  "if (res.data && res.data.token) {",
+                  "  pm.collectionVariables.set('storeToken', res.data.token);",
+                  "  pm.collectionVariables.set('storeId', res.data.store.id);",
+                  "  console.log('Store token saved');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348012345678\",\n  \"otp\": \"482910\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/auth/verify-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "auth",
+                "verify-otp"
+              ]
+            },
+            "description": "Verifies the OTP and issues a JWT access token + refresh token.\n\n**On success:**\n- `isPhoneVerified` set to `true`\n- `onboardingStatus` advances to `phone_verified`\n- JWT stored in `storeToken` httpOnly cookie AND returned in body\n\n**OTP expiry:** 10 minutes\n\n**Token expiry:** Access token 7 days, Refresh token 30 days\n\n**Next step after this:** Call `POST /stores/register` to complete the profile."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Verified + Token",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Phone verified \u2014 login successful\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"64abc123def456\",\n      \"storeName\": \"Store_345678\",\n      \"ownerName\": \"Pending\",\n      \"phoneNumber\": \"+2348012345678\",\n      \"onboardingStatus\": \"phone_verified\",\n      \"referralCode\": \"STOR-AB12XY\",\n      \"boost\": { \"level\": \"none\", \"totalReferrals\": 0 }\n    },\n    \"token\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\",\n    \"refreshToken\": \"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...\"\n  },\n  \"timestamp\": \"2024-11-20T09:01:00.000Z\"\n}"
+            },
+            {
+              "name": "401 \u2014 Invalid OTP",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Invalid or expired OTP\",\n  \"timestamp\": \"2024-11-20T09:01:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Resend OTP",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348012345678\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/auth/resend-otp",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "auth",
+                "resend-otp"
+              ]
+            },
+            "description": "Generates a fresh OTP and sends it to the phone number. Invalidates the previous OTP.\n\n**Use when:** User did not receive the first OTP or it expired.\n\n**Cooldown:** 60 seconds between resend requests (enforced server-side)."
+          },
+          "response": []
+        },
+        {
+          "name": "Refresh Token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.token) {",
+                  "  pm.collectionVariables.set('storeToken', res.data.token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "auth",
+                "refresh-token"
+              ]
+            },
+            "description": "Exchanges a valid refresh token for a new access token. Use when the access token expires (7 days).\n\n**Store the refresh token** on the client at initial login and use it here when you get a 401.\n\n**Refresh token validity:** 30 days"
+          },
+          "response": []
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Clears the refresh token from the database and expires the auth cookie.\n\n**Frontend should also:** delete the stored token from localStorage/AsyncStorage.\n\n**Requires:** Valid store JWT in Authorization header."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "\ud83c\udfea Store Profile & Onboarding",
+      "description": "Store profile setup and management. The minimal required fields for onboarding are: storeName, ownerName, category, address. All others are optional but improve discoverability.",
+      "item": [
+        {
+          "name": "Register / Submit Profile",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Profile updated', () => pm.expect(res.success).to.be.true);",
+                  "if (res.data && res.data.store) {",
+                  "  pm.collectionVariables.set('referralCode', res.data.store.referralCode);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"storeName\": \"Mama Tee's Kitchen\",\n  \"ownerName\": \"Temi Adeyemi\",\n  \"category\": \"64abc000000000000000001\",\n  \"address\": {\n    \"raw\": \"15 Wuse Zone 5, Abuja\",\n    \"lga\": \"Municipal Area Council\",\n    \"state\": \"FCT\",\n    \"coordinates\": {\n      \"type\": \"Point\",\n      \"coordinates\": [7.4898, 9.0579]\n    }\n  },\n  \"referralCode\": \"STOR-AB12XY\",\n  \"description\": \"Authentic Nigerian homemade food. Open daily.\",\n  \"openingHours\": [\n    { \"day\": \"Mon\", \"open\": \"08:00\", \"close\": \"20:00\", \"isClosed\": false },\n    { \"day\": \"Sun\", \"open\": \"10:00\", \"close\": \"18:00\", \"isClosed\": false }\n  ],\n  \"website\": \"https://mamatee.ng\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "register"
+              ]
+            },
+            "description": "Submit the store's profile. **Can also be used as PUT /stores/profile** for updating.\n\n**Required fields (minimum to advance to `profile_complete`):**\n- `storeName`\n- `ownerName`\n- `category` (ObjectId from Categories API)\n- `address.raw`, `address.lga`, `address.state`, `address.coordinates`\n\n**Optional fields:**\n- `referralCode` \u2014 the code of the store that referred this one. Only accepted once, and only from a verified referrer store. Creates a `Referral` record.\n- `description` \u2014 max 500 chars\n- `openingHours` \u2014 array of day objects\n- `website`\n\n**Status transitions:**\n- Before: `phone_verified`\n- After (all required fields present): `profile_complete`\n\n**Profile score** is recalculated on every save (0\u2013100).\n\n**Referral handling:** If `referralCode` is provided and the referrer is verified, a `Referral` record is created with `status: pending`. The boost only activates AFTER admin verification."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Profile Complete",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Profile updated successfully\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"64abc123def456\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"onboardingStatus\": \"profile_complete\",\n      \"profileCompletionScore\": 75,\n      \"referralCode\": \"STOR-CD34ZW\"\n    }\n  },\n  \"timestamp\": \"2024-11-20T09:05:00.000Z\"\n}"
+            },
+            {
+              "name": "401 \u2014 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Not authorized \u2014 please log in\",\n  \"timestamp\": \"2024-11-20T09:05:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Profile (PUT)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated description \u2014 now serving jollof rice and puff puff!\",\n  \"openingHours\": [\n    { \"day\": \"Mon\", \"open\": \"07:00\", \"close\": \"21:00\", \"isClosed\": false },\n    { \"day\": \"Tue\", \"open\": \"07:00\", \"close\": \"21:00\", \"isClosed\": false },\n    { \"day\": \"Sun\", \"open\": \"10:00\", \"close\": \"17:00\", \"isClosed\": false }\n  ],\n  \"website\": \"https://mamatee.ng\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/profile",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "profile"
+              ]
+            },
+            "description": "Update any optional profile fields after registration. Same endpoint as POST /stores/register \u2014 partial updates are supported (only send changed fields).\n\n**Note:** `referralCode` (incoming) is ignored if a referral was already set."
+          },
+          "response": []
+        },
+        {
+          "name": "Get My Store",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "me"
+              ]
+            },
+            "description": "Returns the full profile of the currently authenticated store, including boost status, verification status, and referral code.\n\nUse on app launch to restore session state."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Store Profile",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Store retrieved\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"64abc123def456\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"ownerName\": \"Temi Adeyemi\",\n      \"phoneNumber\": \"+2348012345678\",\n      \"category\": { \"_id\": \"64abc...\", \"name\": \"Food & Drinks\" },\n      \"address\": {\n        \"raw\": \"15 Wuse Zone 5, Abuja\",\n        \"lga\": \"Municipal Area Council\",\n        \"state\": \"FCT\",\n        \"coordinates\": { \"type\": \"Point\", \"coordinates\": [7.4898, 9.0579] }\n      },\n      \"onboardingStatus\": \"profile_complete\",\n      \"isPhoneVerified\": true,\n      \"profileCompletionScore\": 75,\n      \"referralCode\": \"STOR-CD34ZW\",\n      \"boost\": {\n        \"level\": \"none\",\n        \"totalReferrals\": 0\n      },\n      \"photos\": [],\n      \"isActive\": true\n    }\n  },\n  \"timestamp\": \"2024-11-20T09:06:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Profile Completion Checklist",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/profile/completion",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "profile",
+                "completion"
+              ]
+            },
+            "description": "Returns a checklist of profile fields with completion status, point values, and whether the store is ready for admin verification.\n\n**Use this to build the onboarding progress UI.**\n\n`readyForVerification: true` means the store has all required fields (score \u2265 50) and can be submitted to the admin queue."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Completion Checklist",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Completion checklist\",\n  \"data\": {\n    \"score\": 75,\n    \"readyForVerification\": true,\n    \"checklist\": [\n      { \"field\": \"storeName\", \"label\": \"Store Name\", \"complete\": true, \"points\": 15, \"required\": true },\n      { \"field\": \"ownerName\", \"label\": \"Owner Name\", \"complete\": true, \"points\": 10, \"required\": true },\n      { \"field\": \"phoneNumber\", \"label\": \"Phone (verified)\", \"complete\": true, \"points\": 10, \"required\": true },\n      { \"field\": \"category\", \"label\": \"Category\", \"complete\": true, \"points\": 10, \"required\": true },\n      { \"field\": \"address\", \"label\": \"Address\", \"complete\": true, \"points\": 15, \"required\": true },\n      { \"field\": \"photos\", \"label\": \"Store Photo\", \"complete\": false, \"points\": 15, \"required\": false },\n      { \"field\": \"openingHours\", \"label\": \"Opening Hours\", \"complete\": true, \"points\": 10, \"required\": false },\n      { \"field\": \"description\", \"label\": \"Description\", \"complete\": false, \"points\": 10, \"required\": false },\n      { \"field\": \"website\", \"label\": \"Website\", \"complete\": false, \"points\": 5, \"required\": false }\n    ]\n  },\n  \"timestamp\": \"2024-11-20T09:07:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Upload Store Photo",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "image",
+                  "type": "file",
+                  "description": "Store photo \u2014 JPG, PNG, WebP or GIF. Max 5MB."
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/upload-photo",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "upload-photo"
+              ]
+            },
+            "description": "Upload one store photo at a time. Photos are uploaded to Cloudinary and the URL is stored in the `photos` array.\n\n**Constraints:**\n- Max file size: 5MB\n- Allowed types: JPG, PNG, WebP, GIF\n- Max photos per store: 5\n\n**Effect:** Adds 15 points to `profileCompletionScore` when first photo is added.\n\n**Content-Type:** `multipart/form-data` (set automatically by Postman when using file upload)."
+          },
+          "response": []
+        },
+        {
+          "name": "Browse Stores (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/stores?lat=9.0579&lng=7.4898&radius=5000&category=Food&lga=Wuse&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "9.0579",
+                  "description": "User's latitude (for geo sort)"
+                },
+                {
+                  "key": "lng",
+                  "value": "7.4898",
+                  "description": "User's longitude"
+                },
+                {
+                  "key": "radius",
+                  "value": "5000",
+                  "description": "Search radius in metres (default 5000)"
+                },
+                {
+                  "key": "category",
+                  "value": "Food",
+                  "description": "Category name filter"
+                },
+                {
+                  "key": "lga",
+                  "value": "Wuse",
+                  "description": "LGA filter"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Public store listing with geo-proximity sorting and optional filters.\n\n**Boost-aware ranking:** Stores with active boosts appear higher in results:\n- Gold \u2192 top of results\n- Silver \u2192 above non-boosted\n- Bronze \u2192 slight priority\n\n**Requires:** No auth. Optionally pass user coordinates for distance-sorted results.\n\n**Results include:** store name, category, address, boost level, distance from user, photos."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Single Store (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/stores/{{storeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "{{storeId}}"
+              ]
+            },
+            "description": "Retrieves full public profile for a single store.\n\nAlso increments `profileViews` counter for analytics.\n\n**Returns:** All public fields including photos, opening hours, description, boost badge, and address."
+          },
+          "response": []
+        },
+        {
+          "name": "My Store Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/analytics/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "analytics",
+                "me"
+              ]
+            },
+            "description": "Returns the store's own performance metrics.\n\n**Metrics:**\n- `profileViews` \u2014 total visits to store detail page\n- `searchAppearances` \u2014 how many times shown in search results\n- `clickThroughs` \u2014 clicks from search results to profile\n- `ctr` \u2014 click-through rate (clickThroughs / searchAppearances)\n- `validatedReferrals` \u2014 count of successfully validated referrals\n- `boost` \u2014 current boost status"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Store Analytics",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Store analytics\",\n  \"data\": {\n    \"profileViews\": 142,\n    \"searchAppearances\": 890,\n    \"clickThroughs\": 67,\n    \"ctr\": \"7.5%\",\n    \"validatedReferrals\": 4,\n    \"boost\": {\n      \"level\": \"silver\",\n      \"activatedAt\": \"2024-10-15T00:00:00.000Z\",\n      \"expiresAt\": \"2024-12-14T00:00:00.000Z\",\n      \"totalReferrals\": 4,\n      \"source\": \"referral\"\n    }\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udd17 Referral System",
+      "description": "Referral management for store owners. Only VERIFIED stores can generate and send referral links. Referral rewards (boosts) only activate when the referred store completes their profile AND is verified by an admin.",
+      "item": [
+        {
+          "name": "Get My Referral Code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "if (res.data && res.data.referralCode) {",
+                  "  pm.collectionVariables.set('referralCode', res.data.referralCode);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/referral/my-code",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "referral",
+                "my-code"
+              ]
+            },
+            "description": "Returns the store's unique referral code, shareable link, and QR code URL.\n\n**Requires:** Store must have `onboardingStatus: verified` \u2014 pending stores cannot refer others.\n\n**Shareable link format:** `https://corisio.ng/join?ref=STOR-AB12XY`\n\n**QR Code:** Pre-generated URL pointing to a QR code image for print or display."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Referral Code",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral code retrieved\",\n  \"data\": {\n    \"referralCode\": \"STOR-AB12XY\",\n    \"shareableLink\": \"https://corisio.ng/join?ref=STOR-AB12XY\",\n    \"qrCodeUrl\": \"https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https%3A%2F%2Fcorisio.ng%2Fjoin%3Fref%3DSTOR-AB12XY\"\n  }\n}"
+            },
+            {
+              "name": "403 \u2014 Store Not Verified",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Your store must be verified before you can perform this action\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Send Referral SMS",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"phoneNumber\": \"+2348098765432\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/stores/referral/send-sms",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "referral",
+                "send-sms"
+              ]
+            },
+            "description": "Sends a referral invitation SMS to a neighbouring store's phone number.\n\n**Rate limit:** Max 5 SMS referrals per store per 24 hours. Returns `429` if exceeded.\n\n**Guard:** If the phone number belongs to an already-verified store, returns `409 Conflict`.\n\n**SMS content example:**\n> \"Hi! Mama Tee's Kitchen invites you to list your store on Corisio \u2014 Abuja's local store directory. Join here: https://corisio.ng/join?ref=STOR-AB12XY\"\n\n**Requires:** Verified store only."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 SMS Sent",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral SMS sent successfully\"\n}"
+            },
+            {
+              "name": "429 \u2014 Daily Limit Reached",
+              "status": "Too Many Requests",
+              "code": 429,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"You can send a maximum of 5 referral SMS per day\"\n}"
+            },
+            {
+              "name": "409 \u2014 Already Registered",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"This store is already registered on Corisio\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get My Referrals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/referral/my-referrals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "referral",
+                "my-referrals"
+              ]
+            },
+            "description": "Lists all stores this store has referred, with their current referral status.\n\n**Status meanings:**\n- `pending` \u2014 referred store registered but not yet verified\n- `profile_complete` \u2014 referred store submitted full profile, awaiting admin review\n- `validated` \u2014 referred store verified by admin \u2192 boost has been applied\n- `rejected` \u2014 referral flagged or failed abuse check\n\n**Use this to build the referral tracking screen in the app.**"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 My Referrals List",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"My referrals\",\n  \"data\": {\n    \"summary\": {\n      \"total\": 6,\n      \"pending\": 1,\n      \"profileComplete\": 1,\n      \"validated\": 4,\n      \"rejected\": 0\n    },\n    \"referrals\": [\n      {\n        \"_id\": \"ref001\",\n        \"status\": \"validated\",\n        \"channel\": \"sms\",\n        \"boostApplied\": true,\n        \"boostAppliedAt\": \"2024-10-20T10:00:00.000Z\",\n        \"referred\": {\n          \"storeName\": \"Kola Electronics\",\n          \"onboardingStatus\": \"verified\",\n          \"address\": { \"lga\": \"Wuse Zone 5\" }\n        },\n        \"milestones\": {\n          \"registeredAt\": \"2024-10-18T08:00:00.000Z\",\n          \"adminVerifiedAt\": \"2024-10-20T09:45:00.000Z\",\n          \"validatedAt\": \"2024-10-20T10:00:00.000Z\"\n        }\n      },\n      {\n        \"_id\": \"ref002\",\n        \"status\": \"pending\",\n        \"channel\": \"link\",\n        \"boostApplied\": false,\n        \"referred\": {\n          \"storeName\": \"Pending Setup\",\n          \"onboardingStatus\": \"phone_verified\"\n        },\n        \"milestones\": {\n          \"registeredAt\": \"2024-11-19T14:00:00.000Z\"\n        }\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Referral Stats + Boost Progress",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/referral/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "referral",
+                "stats"
+              ]
+            },
+            "description": "Returns the store's referral performance summary and progress toward the next boost level.\n\n**Boost milestones:**\n| Level | Required Referrals | Duration |\n|-------|-------------------|----------|\n| Bronze | 1 | 30 days |\n| Silver | 4 | 60 days |\n| Gold | 10 | 90 days |\n\n**Progress object** tells the frontend:\n- Current boost level\n- Next level to aim for\n- How many more validated referrals needed\n\n**Use this to build the boost progress bar/gamification UI.**"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Stats + Progress",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral stats\",\n  \"data\": {\n    \"boost\": {\n      \"level\": \"silver\",\n      \"activatedAt\": \"2024-10-20T00:00:00.000Z\",\n      \"expiresAt\": \"2024-12-19T00:00:00.000Z\",\n      \"totalReferrals\": 4,\n      \"source\": \"referral\"\n    },\n    \"validatedReferrals\": 4,\n    \"progress\": {\n      \"currentLevel\": \"silver\",\n      \"nextLevel\": \"gold\",\n      \"referralsToNext\": 6\n    },\n    \"milestones\": {\n      \"bronze\": { \"required\": 1, \"duration\": \"30 days\", \"reached\": true },\n      \"silver\": { \"required\": 4, \"duration\": \"60 days\", \"reached\": true },\n      \"gold\": { \"required\": 10, \"duration\": \"90 days\", \"reached\": false }\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Boost Status",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/boost/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "boost",
+                "status"
+              ]
+            },
+            "description": "Returns the store's current boost level, active/inactive state, and days remaining.\n\n**Use this for the boost badge/banner in the store dashboard.**\n\n**`isActive`** is `true` only if boost level is not `none` AND `expiresAt` is in the future."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Active Boost",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Boost status\",\n  \"data\": {\n    \"boost\": {\n      \"level\": \"silver\",\n      \"activatedAt\": \"2024-10-20T00:00:00.000Z\",\n      \"expiresAt\": \"2024-12-19T00:00:00.000Z\",\n      \"totalReferrals\": 4,\n      \"source\": \"referral\"\n    },\n    \"isActive\": true,\n    \"daysRemaining\": 29\n  }\n}"
+            },
+            {
+              "name": "200 \u2014 No Boost",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Boost status\",\n  \"data\": {\n    \"boost\": { \"level\": \"none\", \"totalReferrals\": 0 },\n    \"isActive\": false,\n    \"daysRemaining\": 0\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udd0d Public Discovery",
+      "description": "No authentication required. These endpoints power the public-facing app \u2014 store discovery, store profiles, and product search.",
+      "item": [
+        {
+          "name": "Discover Stores (Geo Search)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores?lat=('9.0765', 'User latitude (decimal degrees)')&lng=('7.3986', 'User longitude (decimal degrees)')&radius=('5', 'Search radius in km (default: 5)')&search=('', 'Full-text search on storeName / description')&category=('', 'Category ObjectId to filter by')&sortBy=('boost', 'boost | distance | newest')&boostedOnly=('false', 'true to show only boosted stores')&page=('1', 'Page number')&limit=('20', 'Results per page (max 50)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores"
+              ],
+              "query": [
+                {
+                  "key": "lat",
+                  "value": "9.0765",
+                  "description": "User latitude (decimal degrees)"
+                },
+                {
+                  "key": "lng",
+                  "value": "7.3986",
+                  "description": "User longitude (decimal degrees)"
+                },
+                {
+                  "key": "radius",
+                  "value": "5",
+                  "description": "Search radius in km (default: 5)"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Full-text search on storeName / description"
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Category ObjectId to filter by"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "boost",
+                  "description": "boost | distance | newest"
+                },
+                {
+                  "key": "boostedOnly",
+                  "value": "false",
+                  "description": "true to show only boosted stores"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Results per page (max 50)"
+                }
+              ]
+            },
+            "description": "Find verified stores near a location. Results are ranked by boost level + distance + recency.\n\n**All params optional.** If lat/lng omitted, returns all verified stores sorted by boost.\n\n**Sort options:** `boost` (default), `distance`, `newest`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Results",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Stores retrieved\",\n  \"data\": {\n    \"stores\": [\n      {\n        \"id\": \"64abc1\",\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"address\": {\n          \"lga\": \"Wuse\",\n          \"state\": \"Abuja\"\n        },\n        \"distanceKm\": 0.8,\n        \"boost\": {\n          \"level\": \"silver\"\n        },\n        \"isFeatured\": false\n      }\n    ],\n    \"pagination\": {\n      \"total\": 12,\n      \"page\": 1,\n      \"limit\": 20,\n      \"totalPages\": 1\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Public Store Profile",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores/{{storeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores",
+                "{{storeId}}"
+              ]
+            },
+            "description": "Returns full public profile for a single verified store. Increments `profileViews` counter on the store.\n\nReturns 404 if store is not verified, suspended, or deleted."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Store Profile",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Store profile\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"{{storeId}}\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"category\": {\n        \"name\": \"Food & Drinks\"\n      },\n      \"address\": {\n        \"lga\": \"Wuse\",\n        \"state\": \"Abuja\"\n      },\n      \"profileViews\": 142,\n      \"boost\": {\n        \"level\": \"silver\",\n        \"expiresAt\": \"2025-06-01T00:00:00.000Z\"\n      }\n    }\n  }\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Store not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Track Profile View",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores/{{storeId}}/view",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores",
+                "{{storeId}}",
+                "view"
+              ]
+            },
+            "description": "Fire-and-forget. Call when a user opens a store's full profile page.\n\nReturns immediately (<5ms). Write happens asynchronously.\n\n**No body required.**"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Recorded",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Event recorded\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Track Listing Click",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores/{{storeId}}/listing-click",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores",
+                "{{storeId}}",
+                "listing-click"
+              ]
+            },
+            "description": "Fire-and-forget. Call when a user taps a store card in the discovery list.\n\nAlso increments `clickThroughs` on the Store document."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Recorded",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Event recorded\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Track Call Click",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores/{{storeId}}/call-click",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores",
+                "{{storeId}}",
+                "call-click"
+              ]
+            },
+            "description": "Fire-and-forget. Call when a user taps the call/phone button on a store profile."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Recorded",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Event recorded\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Track Direction Click",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores/{{storeId}}/direction-click",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores",
+                "{{storeId}}",
+                "direction-click"
+              ]
+            },
+            "description": "Fire-and-forget. Call when a user taps the 'Get Directions' button on a store profile."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Recorded",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Event recorded\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Search Products (Geo-Aware)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/products/search?query=('', 'Full-text search on product label / description / tags')&category=('', 'Category ObjectId')&sub_category=('', 'SubCategory ObjectId')&product_group=('', 'ProductGroup ObjectId')&condition=('new', 'new | used | refurbished')&availability=('in_stock', 'in_stock | out_of_stock | on_order')&minPrice=('', 'Minimum price (NGN)')&maxPrice=('', 'Maximum price (NGN)')&tags=('', 'Comma-separated tags, e.g. halal,bulk')&lat=('9.0765', 'User latitude')&lng=('7.3986', 'User longitude')&radius=('5', 'Search radius in km (default: 5)')&sortBy=('relevance', 'relevance | price_asc | price_desc | newest | distance')&page=('1', 'Page number')&limit=('20', 'Results per page (max 50)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "products",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "query",
+                  "value": "",
+                  "description": "Full-text search on product label / description / tags"
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Category ObjectId"
+                },
+                {
+                  "key": "sub_category",
+                  "value": "",
+                  "description": "SubCategory ObjectId"
+                },
+                {
+                  "key": "product_group",
+                  "value": "",
+                  "description": "ProductGroup ObjectId"
+                },
+                {
+                  "key": "condition",
+                  "value": "new",
+                  "description": "new | used | refurbished"
+                },
+                {
+                  "key": "availability",
+                  "value": "in_stock",
+                  "description": "in_stock | out_of_stock | on_order"
+                },
+                {
+                  "key": "minPrice",
+                  "value": "",
+                  "description": "Minimum price (NGN)"
+                },
+                {
+                  "key": "maxPrice",
+                  "value": "",
+                  "description": "Maximum price (NGN)"
+                },
+                {
+                  "key": "tags",
+                  "value": "",
+                  "description": "Comma-separated tags, e.g. halal,bulk"
+                },
+                {
+                  "key": "lat",
+                  "value": "9.0765",
+                  "description": "User latitude"
+                },
+                {
+                  "key": "lng",
+                  "value": "7.3986",
+                  "description": "User longitude"
+                },
+                {
+                  "key": "radius",
+                  "value": "5",
+                  "description": "Search radius in km (default: 5)"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "relevance",
+                  "description": "relevance | price_asc | price_desc | newest | distance"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Results per page (max 50)"
+                }
+              ]
+            },
+            "description": "Search products across all verified stores.\n\nProducts from unverified or suspended stores are automatically excluded.\n\n**Geo filter:** Provide `lat`, `lng`, `radius` to filter products by store proximity.\n\n**Sort options:**\n- `relevance` (default) \u2014 boosted stores first, then distance\n- `price_asc` / `price_desc`\n- `newest`\n- `distance` (requires lat/lng)\n\n**Tags:** comma-separated string, e.g. `tags=halal,bulk`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Products Found",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Products retrieved\",\n  \"data\": {\n    \"products\": [\n      {\n        \"id\": \"64prod1\",\n        \"label\": \"Indomie Noodles Chicken 70g\",\n        \"price\": 350,\n        \"currency\": \"NGN\",\n        \"availability\": \"in_stock\",\n        \"condition\": \"new\",\n        \"images\": [\n          \"https://cdn.example.com/indomie.jpg\"\n        ],\n        \"category\": {\n          \"id\": \"64cat1\",\n          \"label\": \"Food & Drinks\"\n        },\n        \"sub_category\": {\n          \"id\": \"64sub1\",\n          \"label\": \"Noodles\"\n        },\n        \"product_group\": {\n          \"id\": \"64pg1\",\n          \"label\": \"Indomie\"\n        },\n        \"store\": {\n          \"id\": \"{{storeId}}\",\n          \"storeName\": \"Mama Tee's Kitchen\",\n          \"lga\": \"Wuse\",\n          \"boostLevel\": \"silver\"\n        },\n        \"distanceKm\": 0.8\n      }\n    ],\n    \"pagination\": {\n      \"total\": 4,\n      \"totalPages\": 1,\n      \"page\": 1,\n      \"limit\": 20,\n      \"hasNextPage\": false,\n      \"hasPrevPage\": false\n    },\n    \"meta\": {\n      \"priceRange\": {\n        \"min\": 350,\n        \"max\": 650\n      },\n      \"query\": null,\n      \"geo\": {\n        \"lat\": 9.0765,\n        \"lng\": 7.3986,\n        \"radiusKm\": 5\n      }\n    }\n  }\n}"
+            },
+            {
+              "name": "200 \u2014 Empty Results",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Products retrieved\",\n  \"data\": {\n    \"products\": [],\n    \"pagination\": {\n      \"total\": 0,\n      \"totalPages\": 0,\n      \"page\": 1,\n      \"limit\": 20\n    },\n    \"meta\": {\n      \"priceRange\": null\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Single Product (Public)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "description": "Returns full public product detail with store context.\n\nIncrements `viewCount` on the product (fire-and-forget).\n\nReturns 404 if product is inactive or its store is unverified."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Product",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product retrieved\",\n  \"data\": {\n    \"product\": {\n      \"id\": \"{{productId}}\",\n      \"label\": \"Indomie Noodles Chicken 70g\",\n      \"description\": \"Classic chicken flavour instant noodles\",\n      \"price\": 350,\n      \"currency\": \"NGN\",\n      \"condition\": \"new\",\n      \"availability\": \"in_stock\",\n      \"images\": [\n        \"https://cdn.example.com/img1.jpg\"\n      ],\n      \"tags\": [\n        \"instant\",\n        \"noodles\"\n      ],\n      \"specifications\": {\n        \"weight\": \"70g\",\n        \"flavour\": \"Chicken\"\n      },\n      \"store\": {\n        \"id\": \"{{storeId}}\",\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"lga\": \"Wuse\",\n        \"boostLevel\": \"silver\"\n      }\n    }\n  }\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Store's Products (Public)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/public/stores/{{storeId}}/products?category=('', 'Filter by category ObjectId')&page=('1', 'Page number')&limit=('20', 'Results per page (max 50)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stores",
+                "{{storeId}}",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Filter by category ObjectId"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Results per page (max 50)"
+                }
+              ]
+            },
+            "description": "Lists active, in-stock products for a specific verified store.\n\nUsed on the store's public profile page as a product listing widget."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Store Products",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Store products retrieved\",\n  \"data\": {\n    \"products\": [\n      {\n        \"id\": \"64prod1\",\n        \"label\": \"Indomie Noodles 70g\",\n        \"price\": 350,\n        \"availability\": \"in_stock\",\n        \"images\": [\n          \"https://cdn.example.com/img.jpg\"\n        ]\n      }\n    ],\n    \"pagination\": {\n      \"total\": 8,\n      \"totalPages\": 1\n    }\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udce6 Store \u2014 Product Management",
+      "description": "Store owner endpoints for managing product listings. All routes require a verified store JWT.\n\n**Auth:** `Authorization: Bearer {{storeToken}}`\n\n**Product cap:** 50 active products per store (configurable via `MAX_PRODUCTS_PER_STORE` env var).",
+      "item": [
+        {
+          "name": "List My Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/products?isActive=('true', 'true | false \u2014 filter by active status')&category=('', 'Filter by Category ObjectId')&sub_category=('', 'Filter by SubCategory ObjectId')&availability=('', 'in_stock | out_of_stock | on_order')&search=('', 'Search in product label')&page=('1', 'Page number')&limit=('20', 'Results per page (max 50)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "isActive",
+                  "value": "true",
+                  "description": "true | false \u2014 filter by active status"
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Filter by Category ObjectId"
+                },
+                {
+                  "key": "sub_category",
+                  "value": "",
+                  "description": "Filter by SubCategory ObjectId"
+                },
+                {
+                  "key": "availability",
+                  "value": "",
+                  "description": "in_stock | out_of_stock | on_order"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search in product label"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Results per page (max 50)"
+                }
+              ]
+            },
+            "description": "Returns all products for the authenticated store, including inactive ones.\n\nUse `isActive=true` to see only live listings."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 2xx', () => pm.response.to.have.status(pm.response.code < 300 ? pm.response.code : 200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "200 \u2014 My Products",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Products retrieved\",\n  \"data\": {\n    \"products\": [\n      {\n        \"id\": \"64prod1\",\n        \"label\": \"Indomie Noodles 70g\",\n        \"price\": 350,\n        \"availability\": \"in_stock\",\n        \"isActive\": true,\n        \"viewCount\": 12,\n        \"searchAppearances\": 40\n      }\n    ],\n    \"pagination\": {\n      \"total\": 3,\n      \"totalPages\": 1,\n      \"page\": 1,\n      \"limit\": 20\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Single Product (Owner)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "description": "Returns full product detail for a product owned by the authenticated store.\n\nIncludes private fields like `viewCount`, `searchAppearances`, `boostLevel`."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Product Detail",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product retrieved\",\n  \"data\": {\n    \"product\": {\n      \"id\": \"{{productId}}\",\n      \"label\": \"Indomie Noodles 70g\",\n      \"price\": 350,\n      \"viewCount\": 12,\n      \"searchAppearances\": 40,\n      \"boostLevel\": 0,\n      \"isActive\": true\n    }\n  }\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Product",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/products",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "products"
+              ]
+            },
+            "description": "Creates a new product listing for the authenticated store.\n\n**Required fields:** `label`, `price`, `images` (min 1), `category`, `sub_category`, `specifications`\n\n**Optional:** `product_group`, `description`, `video`, `tags`, `condition`, `availability`, `totalInStock`\n\n**Limits:**\n- Max 50 active products per store\n- Max 10 tags\n- Images must be valid URLs",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Indomie Noodles Chicken 70g\",\n  \"description\": \"Classic chicken flavour instant noodles\",\n  \"price\": 350,\n  \"currency\": \"NGN\",\n  \"availability\": \"in_stock\",\n  \"totalInStock\": 200,\n  \"condition\": \"new\",\n  \"images\": [\n    \"https://cdn.example.com/indomie-chicken.jpg\"\n  ],\n  \"video\": \"\",\n  \"category\": \"{{categoryId}}\",\n  \"sub_category\": \"{{subCategoryId}}\",\n  \"product_group\": \"{{productGroupId}}\",\n  \"specifications\": {\n    \"weight\": \"70g\",\n    \"flavour\": \"Chicken\",\n    \"packagingType\": \"Single pack\"\n  },\n  \"tags\": [\n    \"instant\",\n    \"noodles\",\n    \"chicken\"\n  ]\n}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 2xx', () => pm.response.to.have.status(pm.response.code < 300 ? pm.response.code : 200));",
+                  "if (res[\"data\"][\"product\"][\"id\"]) {",
+                  "  pm.collectionVariables.set('productId', res[\"data\"][\"product\"][\"id\"]);",
+                  "  console.log('productId saved:', res[\"data\"][\"product\"][\"id\"]);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": [
+            {
+              "name": "201 \u2014 Created",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product created\",\n  \"data\": {\n    \"product\": {\n      \"id\": \"64prod1\",\n      \"label\": \"Indomie Noodles Chicken 70g\",\n      \"price\": 350,\n      \"availability\": \"in_stock\",\n      \"isActive\": true\n    }\n  }\n}"
+            },
+            {
+              "name": "400 \u2014 Validation Error",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product name is required; At least one image is required\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            },
+            {
+              "name": "400 \u2014 Category Not Found",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Category not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            },
+            {
+              "name": "429 \u2014 Product Cap Reached",
+              "status": "Too Many Requests",
+              "code": 429,
+              "body": "{\"success\": false, \"type\": \"error\", \"message\": \"Store has reached the maximum of 50 active products\", \"timestamp\": \"2025-01-01T00:00:00.000Z\"}"
+            }
+          ]
+        },
+        {
+          "name": "Update Product",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "description": "Full or partial update of a product. Only the authenticated store's own products can be updated.\n\nAll fields are optional \u2014 send only what you want to change.\n\nIf `availability` is changed, `inStock` is automatically synced.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"Indomie Noodles Chicken 70g (Updated)\",\n  \"price\": 380,\n  \"availability\": \"in_stock\",\n  \"totalInStock\": 150,\n  \"specifications\": {\n    \"weight\": \"70g\",\n    \"flavour\": \"Chicken\",\n    \"packagingType\": \"Single pack\"\n  },\n  \"tags\": [\n    \"instant\",\n    \"noodles\",\n    \"chicken\",\n    \"halal\"\n  ]\n}"
+            }
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Updated",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product updated\",\n  \"data\": {\n    \"product\": {\n      \"id\": \"{{productId}}\",\n      \"label\": \"Indomie Noodles Chicken 70g (Updated)\",\n      \"price\": 380\n    }\n  }\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Availability Only",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/products/{{productId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "products",
+                "{{productId}}",
+                "availability"
+              ]
+            },
+            "description": "Lightweight endpoint to change just the availability status.\n\nUse this for quick stock toggles from mobile \u2014 avoids sending the full product payload.\n\nAutomatic sync: changing `availability` also updates the `inStock` boolean.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"availability\": \"out_of_stock\"\n}"
+            }
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Updated",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Availability updated\",\n  \"data\": {\n    \"id\": \"{{productId}}\",\n    \"availability\": \"out_of_stock\",\n    \"inStock\": false\n  }\n}"
+            },
+            {
+              "name": "400 \u2014 Invalid Value",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"availability must be one of: in_stock, out_of_stock, on_order\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Product (Soft)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{storeToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/stores/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "stores",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "description": "Soft-deletes the product by setting `isActive = false`.\n\nThe product is removed from all public search results immediately.\n\n**Data is preserved** for analytics \u2014 product record is never hard-deleted.\n\nOnly the owning store can delete their products."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Deleted",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product removed from listing\"\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udee1\ufe0f Admin \u2014 Store Verification",
+      "description": "Admin endpoints for verifying stores, managing the verification queue, and manually granting boosts. All routes require a valid admin JWT with appropriate permissions.",
+      "item": [
+        {
+          "name": "Get Pending Stores",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/pending?page=1&limit=20&lga=Wuse",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "stores",
+                "pending"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                },
+                {
+                  "key": "lga",
+                  "value": "Wuse",
+                  "description": "Filter by LGA"
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Filter by category ObjectId",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Returns a paginated list of stores with `onboardingStatus: profile_complete` \u2014 i.e. stores waiting for admin verification.\n\n**Sorted:** Oldest first (FIFO queue \u2014 longest waiting stores appear first).\n\n**Filters:** `lga`, `category`\n\n**Permission required:** `view_users`\n\n**Includes:** Category name, referral info (who referred this store)."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Pending Queue",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Pending stores\",\n  \"data\": {\n    \"total\": 14,\n    \"page\": 1,\n    \"limit\": 20,\n    \"stores\": [\n      {\n        \"_id\": \"64abc123\",\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"ownerName\": \"Temi Adeyemi\",\n        \"phoneNumber\": \"+2348012345678\",\n        \"category\": { \"_id\": \"cat001\", \"name\": \"Food & Drinks\" },\n        \"address\": {\n          \"raw\": \"15 Wuse Zone 5, Abuja\",\n          \"lga\": \"Municipal Area Council\",\n          \"coordinates\": { \"type\": \"Point\", \"coordinates\": [7.4898, 9.0579] }\n        },\n        \"onboardingStatus\": \"profile_complete\",\n        \"profileCompletionScore\": 75,\n        \"referredBy\": {\n          \"storeName\": \"Kola Electronics\",\n          \"referralCode\": \"STOR-AB12XY\"\n        },\n        \"createdAt\": \"2024-11-18T08:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Store Detail (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/{{storeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "stores",
+                "{{storeId}}"
+              ]
+            },
+            "description": "Full admin view of a store including:\n- Complete store data\n- Referral history (all referrals this store has made)\n- Referral received (who referred this store)\n- Boost history (full ledger)\n\n**Permission required:** `view_users`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Full Store Detail",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Store detail\",\n  \"data\": {\n    \"store\": { \"storeName\": \"Mama Tee's Kitchen\", \"onboardingStatus\": \"profile_complete\", \"boost\": { \"level\": \"none\" } },\n    \"referralsMade\": [],\n    \"referralReceived\": {\n      \"referrer\": { \"storeName\": \"Kola Electronics\", \"referralCode\": \"STOR-AB12XY\" },\n      \"status\": \"pending\",\n      \"channel\": \"sms\"\n    },\n    \"boostHistory\": []\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Verify Store \u2705",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const res = pm.response.json();",
+                  "pm.test('Status 200', () => pm.response.to.have.status(200));",
+                  "pm.test('Store verified', () => {",
+                  "  pm.expect(res.data.store.onboardingStatus).to.equal('verified');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"method\": \"agent_visit\",\n  \"notes\": \"Physically visited. Store confirmed at stated location. GPS matches within 15m.\",\n  \"verifiedCoordinates\": [7.4900, 9.0581]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/{{storeId}}/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "stores",
+                "{{storeId}}",
+                "verify"
+              ]
+            },
+            "description": "Marks a store as verified. **This is the most important action in the system** \u2014 it triggers the entire referral validation chain.\n\n**What happens automatically after this call:**\n1. `onboardingStatus` \u2192 `verified`\n2. `verifiedAt`, `verifiedBy`, `verificationMethod` recorded\n3. `validateReferral()` service called asynchronously\n4. If referral passes abuse checks \u2192 `Referral.status` \u2192 `validated`\n5. Referrer's `boost` level recalculated and updated\n6. `BoostLedger` entry created (immutable audit)\n7. Push notification sent to referrer store owner\n\n**Verification methods:**\n- `agent_visit` \u2014 field agent physically visited the store\n- `gps` \u2014 GPS coordinates confirmed\n- `photo` \u2014 store photo verified\n- `id_check` \u2014 owner ID checked\n\n**`verifiedCoordinates`** (optional) \u2014 agent-confirmed GPS coordinates, updates the store's stored location if provided.\n\n**Permission required:** `create_users`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Verified",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Store verified successfully\",\n  \"data\": {\n    \"store\": {\n      \"_id\": \"64abc123\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"onboardingStatus\": \"verified\",\n      \"verifiedAt\": \"2024-11-20T10:00:00.000Z\",\n      \"verificationMethod\": \"agent_visit\"\n    }\n  }\n}"
+            },
+            {
+              "name": "409 \u2014 Already Verified",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Store is already verified\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Reject Store \u274c",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Could not locate store at provided address. Phone number unreachable. Please resubmit with correct location.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/{{storeId}}/reject",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "stores",
+                "{{storeId}}",
+                "reject"
+              ]
+            },
+            "description": "Rejects a store's verification request with a mandatory reason.\n\n**After rejection:**\n- `onboardingStatus` \u2192 `rejected`\n- `rejectionReason` stored (shown to store owner)\n- Store can resubmit corrected info and re-enter verification queue\n- Any pending referral is NOT invalidated \u2014 it stays `pending` until the store re-applies and is eventually verified or permanently rejected\n\n**Permission required:** `create_users`"
+          },
+          "response": []
+        },
+        {
+          "name": "Grant Boost (Admin Manual)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"level\": \"gold\",\n  \"durationDays\": 90,\n  \"note\": \"Promotional grant for early adopter store \u2014 Abuja Launch Week\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/{{storeId}}/boost-grant",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "stores",
+                "{{storeId}}",
+                "boost-grant"
+              ]
+            },
+            "description": "Manually grant a boost to a store outside of the normal referral system.\n\n**Use cases:**\n- Early adopter promotions\n- Make-good for service issues\n- Partnership deals\n\n**`level`:** `bronze`, `silver`, or `gold`\n**`durationDays`:** How many days the boost lasts (default 30)\n**`note`:** Reason for grant (stored in BoostLedger for audit)\n\n**Source** is recorded as `admin_grant` in the boost record.\n\n**Permission required:** `manage_roles`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Referral Tree",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/stores/{{storeId}}/referral-tree",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "stores",
+                "{{storeId}}",
+                "referral-tree"
+              ]
+            },
+            "description": "Returns a 2-level deep referral network tree rooted at the given store.\n\n**Returns:**\n- `root` \u2014 the store itself\n- `directReferrals` \u2014 stores directly referred (depth 1)\n- `secondDegreeReferrals` \u2014 stores referred by direct referrals (depth 2)\n- `totalNetwork` \u2014 total network size\n\n**Use for:** Admin dashboard network visualization, fraud investigation, understanding store clusters.\n\n**Permission required:** `view_users`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Referral Tree",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral tree\",\n  \"data\": {\n    \"root\": { \"id\": \"64abc1\", \"storeName\": \"Mama Tee's Kitchen\", \"referralCode\": \"STOR-AB12XY\" },\n    \"directReferrals\": [\n      {\n        \"status\": \"validated\",\n        \"referred\": { \"storeName\": \"Kola Electronics\", \"onboardingStatus\": \"verified\", \"boost\": { \"level\": \"bronze\" } }\n      },\n      {\n        \"status\": \"pending\",\n        \"referred\": { \"storeName\": \"Brothers Pharmacy\", \"onboardingStatus\": \"phone_verified\" }\n      }\n    ],\n    \"secondDegreeReferrals\": [\n      {\n        \"referrer\": { \"storeName\": \"Kola Electronics\" },\n        \"referred\": { \"storeName\": \"City Barber\", \"onboardingStatus\": \"verified\" }\n      }\n    ],\n    \"totalNetwork\": 3\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udee1\ufe0f Admin \u2014 Referral Management",
+      "description": "Admin tools for managing referrals, fraud detection, and boost monitoring.",
+      "item": [
+        {
+          "name": "Get All Referrals",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/referrals?status=pending&flagged=false&page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "referrals"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "pending",
+                  "description": "Filter: pending | profile_complete | validated | rejected"
+                },
+                {
+                  "key": "flagged",
+                  "value": "false",
+                  "description": "Filter: true | false"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Paginated list of all referrals in the system with filtering.\n\n**Filters:**\n- `status` \u2014 `pending`, `profile_complete`, `validated`, `rejected`\n- `flagged` \u2014 `true` to see only fraud-flagged referrals\n\n**Permission required:** `view_users`"
+          },
+          "response": []
+        },
+        {
+          "name": "Flag Referral as Fraudulent",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Store owner confirmed they do not know the referrer. Suspected paid referral scheme.\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/referrals/{{referralId}}/flag",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "referrals",
+                "{{referralId}}",
+                "flag"
+              ]
+            },
+            "description": "Flags a referral as fraudulent.\n\n**If the referral was already `validated`:**\n- Status reverted to `rejected`\n- Referrer's boost is recalculated (this referral no longer counts)\n- `BoostLedger` records the change\n\n**If referral was `pending`:**\n- Marked as flagged \u2014 will not validate even if store is later verified\n\n**Permission required:** `manage_roles`"
+          },
+          "response": []
+        },
+        {
+          "name": "Unflag Referral",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/admin/referrals/{{referralId}}/unflag",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "referrals",
+                "{{referralId}}",
+                "unflag"
+              ]
+            },
+            "description": "Clears the fraud flag from a referral after manual review determines it is legitimate.\n\n**Note:** Unflagging does NOT automatically re-validate the referral or re-apply the boost. Admin should re-run verification flow or manually grant boost if needed.\n\n**Permission required:** `manage_roles`"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Expiring Boosts",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/boosts/expiring",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "boosts",
+                "expiring"
+              ]
+            },
+            "description": "Returns all stores whose boosts expire within the next 7 days.\n\n**Use case:** Proactively notify stores to refer more stores before their boost expires. Good for automated email/push campaign triggers.\n\n**Permission required:** `view_users`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Expiring Boosts",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Expiring boosts\",\n  \"data\": {\n    \"count\": 3,\n    \"stores\": [\n      {\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"phoneNumber\": \"+2348012345678\",\n        \"address\": { \"lga\": \"Municipal Area Council\" },\n        \"boost\": {\n          \"level\": \"silver\",\n          \"expiresAt\": \"2024-11-23T00:00:00.000Z\",\n          \"totalReferrals\": 4\n        }\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Boost Ledger",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/boosts/ledger/{{storeId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "boosts",
+                "ledger",
+                "{{storeId}}"
+              ]
+            },
+            "description": "Returns the complete, immutable boost audit trail for a specific store.\n\n**Every boost event is logged:** activation, upgrade, expiry, revocation, admin grants.\n\n**Each entry includes:**\n- `event` \u2014 what happened\n- `fromLevel` / `toLevel` \u2014 the transition\n- `triggerReferral` \u2014 which referral caused this (if applicable)\n- `expiresAt` \u2014 when this boost was set to expire\n- `note` \u2014 admin comment or system note\n\n**Use for:** Dispute resolution, auditing, customer support.\n\n**Permission required:** `access_reports`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Boost Ledger",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Boost ledger\",\n  \"data\": {\n    \"ledger\": [\n      {\n        \"event\": \"upgraded\",\n        \"fromLevel\": \"bronze\",\n        \"toLevel\": \"silver\",\n        \"expiresAt\": \"2024-12-19T00:00:00.000Z\",\n        \"note\": \"Validated referral count: 4\",\n        \"triggerReferral\": { \"referred\": \"64abc999\", \"status\": \"validated\" },\n        \"createdAt\": \"2024-10-20T10:00:00.000Z\"\n      },\n      {\n        \"event\": \"activated\",\n        \"fromLevel\": \"none\",\n        \"toLevel\": \"bronze\",\n        \"expiresAt\": \"2024-10-20T00:00:00.000Z\",\n        \"note\": \"Validated referral count: 1\",\n        \"createdAt\": \"2024-09-20T10:00:00.000Z\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udcca Admin \u2014 Analytics",
+      "description": "Analytics and reporting endpoints. All require admin JWT with `access_reports` permission.",
+      "item": [
+        {
+          "name": "Referral Network Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/analytics/referrals",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "analytics",
+                "referrals"
+              ]
+            },
+            "description": "Comprehensive referral network analytics dashboard data.\n\n**Includes:**\n- Volume: total, validated, pending, rejected referrals\n- Conversion rate (validated / total)\n- Top 10 referrers by validated count with boost levels\n- Boost distribution across all stores (none/bronze/silver/gold counts)\n- Channel breakdown (sms/link/phone_input/qr_code)\n- Abuse metrics: flagged count, auto-rejected, pending admin review\n\n**Use for:** Weekly KPI reporting, identifying top referrers for rewards, detecting abuse spikes."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Full Analytics",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Referral analytics\",\n  \"data\": {\n    \"volume\": { \"total\": 348, \"validated\": 271, \"pending\": 52, \"rejected\": 25 },\n    \"conversionRate\": \"77.9%\",\n    \"topReferrers\": [\n      { \"storeName\": \"Mama Tee's Kitchen\", \"lga\": \"Municipal Area Council\", \"boostLevel\": \"gold\", \"validatedCount\": 14 },\n      { \"storeName\": \"Kola Electronics\", \"lga\": \"Wuse Zone 5\", \"boostLevel\": \"silver\", \"validatedCount\": 9 }\n    ],\n    \"boostDistribution\": { \"none\": 183, \"bronze\": 47, \"silver\": 18, \"gold\": 3 },\n    \"channelBreakdown\": [\n      { \"_id\": \"sms\", \"count\": 180 },\n      { \"_id\": \"link\", \"count\": 140 },\n      { \"_id\": \"qr_code\", \"count\": 28 }\n    ],\n    \"abuse\": { \"flagged\": 25, \"autoRejected\": 18, \"pendingAdminReview\": 7 }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Onboarding Funnel",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/analytics/onboarding?period=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "analytics",
+                "onboarding"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "30",
+                  "description": "Number of days to look back (default: 30)"
+                }
+              ]
+            },
+            "description": "Store onboarding conversion funnel for a given time period.\n\n**Funnel stages:**\n1. `registered` \u2014 phone number submitted\n2. `phoneVerified` \u2014 OTP verified\n3. `profileComplete` \u2014 all required fields submitted\n4. `verified` \u2014 admin approved\n5. `rejected` \u2014 admin rejected\n\n**Drop-off rates** calculated between each stage to identify friction points.\n\n**`avgOnboardingMinutes`** \u2014 average time from registration to profile_complete.\n\n**Use for:** Identifying where stores drop off, optimizing the onboarding UX."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Funnel Data",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Onboarding funnel\",\n  \"data\": {\n    \"period\": \"last_30_days\",\n    \"funnel\": {\n      \"registered\": 180,\n      \"phoneVerified\": 174,\n      \"profileComplete\": 155,\n      \"verified\": 121,\n      \"rejected\": 12\n    },\n    \"dropOffRates\": {\n      \"registrationToPhone\": \"3.3%\",\n      \"phoneToProfile\": \"11.0%\",\n      \"profileToVerified\": \"22.0%\"\n    },\n    \"avgOnboardingMinutes\": 7\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Cluster Density (Geo Heatmap)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/analytics/cluster-density",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "analytics",
+                "cluster-density"
+              ]
+            },
+            "description": "Returns store density data grouped by LGA and category \u2014 ideal for rendering a geo heatmap or coverage map.\n\n**Returns:**\n- `clusters` \u2014 array of { lga, category, count, centroid [lng, lat] }\n- `lgaSummary` \u2014 stores per LGA sorted by density\n- `densestLGA` \u2014 the most store-dense LGA\n- `coverageZones` \u2014 number of unique LGAs with verified stores\n\n**Use for:**\n- Identifying underserved areas to target for agent outreach\n- Map visualization of Corisio store coverage\n- Deciding where to focus onboarding campaigns\n\n**Permission required:** `access_reports`"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Density Data",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"message\": \"Cluster density\",\n  \"data\": {\n    \"totalVerifiedStores\": 251,\n    \"densestLGA\": \"Wuse Zone 5\",\n    \"coverageZones\": 12,\n    \"lgaSummary\": [\n      { \"_id\": \"Wuse Zone 5\", \"count\": 34 },\n      { \"_id\": \"Garki Area 2\", \"count\": 22 },\n      { \"_id\": \"Maitama\", \"count\": 18 }\n    ],\n    \"clusters\": [\n      { \"lga\": \"Wuse Zone 5\", \"category\": \"Food & Drinks\", \"count\": 14, \"centroid\": [7.49, 9.06] },\n      { \"lga\": \"Wuse Zone 5\", \"category\": \"Fashion\", \"count\": 10, \"centroid\": [7.49, 9.06] },\n      { \"lga\": \"Garki Area 2\", \"category\": \"Electronics\", \"count\": 9, \"centroid\": [7.48, 9.04] }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udcca Admin \u2014 Engagement Analytics",
+      "description": "Store and platform engagement analytics \u2014 profile views, listing clicks, call clicks, direction clicks tracked in daily buckets.\n\n**Auth:** `Authorization: Bearer {{adminToken}}`\n**Permission required:** `access_reports`",
+      "item": [
+        {
+          "name": "Store Engagement Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/analytics/engagement/{{storeId}}?startDate=('2025-01-01', 'Start date YYYY-MM-DD (default: 30 days ago)')&endDate=('2025-01-31', 'End date YYYY-MM-DD (default: today)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "analytics",
+                "engagement",
+                "{{storeId}}"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2025-01-01",
+                  "description": "Start date YYYY-MM-DD (default: 30 days ago)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2025-01-31",
+                  "description": "End date YYYY-MM-DD (default: today)"
+                }
+              ]
+            },
+            "description": "Returns engagement data for a single store within a date range.\n\nIncludes daily breakdown, period totals, and lifetime totals from the Store document."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Store Engagement",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Store engagement analytics\",\n  \"data\": {\n    \"store\": {\n      \"id\": \"{{storeId}}\",\n      \"storeName\": \"Mama Tee's Kitchen\",\n      \"boostLevel\": \"silver\"\n    },\n    \"period\": {\n      \"startDate\": \"2025-01-01\",\n      \"endDate\": \"2025-01-31\"\n    },\n    \"totals\": {\n      \"profileViews\": 312,\n      \"listingClicks\": 87,\n      \"callClicks\": 24,\n      \"directionClicks\": 19\n    },\n    \"daysWithActivity\": 14,\n    \"daily\": [\n      {\n        \"date\": \"2025-01-01\",\n        \"profileViews\": 18,\n        \"listingClicks\": 5,\n        \"callClicks\": 2,\n        \"directionClicks\": 1\n      }\n    ],\n    \"lifetimeTotals\": {\n      \"profileViews\": 1402,\n      \"searchAppearances\": 8900,\n      \"clickThroughs\": 340\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Platform Engagement Analytics",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/analytics/engagement?startDate=('2025-01-01', 'Start date YYYY-MM-DD (default: 30 days ago)')&endDate=('2025-01-31', 'End date YYYY-MM-DD (default: today)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "analytics",
+                "engagement"
+              ],
+              "query": [
+                {
+                  "key": "startDate",
+                  "value": "2025-01-01",
+                  "description": "Start date YYYY-MM-DD (default: 30 days ago)"
+                },
+                {
+                  "key": "endDate",
+                  "value": "2025-01-31",
+                  "description": "End date YYYY-MM-DD (default: today)"
+                }
+              ]
+            },
+            "description": "Platform-wide engagement totals across all stores for a date range.\n\nIncludes conversion rates: call conversion = callClicks / listingClicks."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Platform Engagement",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Platform engagement analytics\",\n  \"data\": {\n    \"period\": {\n      \"startDate\": \"2025-01-01\",\n      \"endDate\": \"2025-01-31\"\n    },\n    \"totals\": {\n      \"profileViews\": 9842,\n      \"listingClicks\": 3201,\n      \"callClicks\": 891,\n      \"directionClicks\": 620\n    },\n    \"conversionRates\": {\n      \"callConversionPct\": 27.8,\n      \"directionConversionPct\": 19.4\n    },\n    \"daily\": [\n      {\n        \"date\": \"2025-01-01\",\n        \"profileViews\": 287,\n        \"listingClicks\": 94,\n        \"callClicks\": 26,\n        \"directionClicks\": 18\n      }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "\ud83d\udee1\ufe0f Admin \u2014 Product Management",
+      "description": "Admin endpoints for monitoring and moderating product listings across all stores.\n\n**Auth:** `Authorization: Bearer {{adminToken}}`\n**Permission required:** `manage_config`",
+      "item": [
+        {
+          "name": "List All Products",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/products?storeId=('', 'Filter by store ObjectId')&category=('', 'Filter by Category ObjectId')&sub_category=('', 'Filter by SubCategory ObjectId')&product_group=('', 'Filter by ProductGroup ObjectId')&isActive=('', 'true | false')&availability=('', 'in_stock | out_of_stock | on_order')&condition=('', 'new | used | refurbished')&search=('', 'Search in product label')&page=('1', 'Page number')&limit=('20', 'Results per page (max 100)')",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "products"
+              ],
+              "query": [
+                {
+                  "key": "storeId",
+                  "value": "",
+                  "description": "Filter by store ObjectId"
+                },
+                {
+                  "key": "category",
+                  "value": "",
+                  "description": "Filter by Category ObjectId"
+                },
+                {
+                  "key": "sub_category",
+                  "value": "",
+                  "description": "Filter by SubCategory ObjectId"
+                },
+                {
+                  "key": "product_group",
+                  "value": "",
+                  "description": "Filter by ProductGroup ObjectId"
+                },
+                {
+                  "key": "isActive",
+                  "value": "",
+                  "description": "true | false"
+                },
+                {
+                  "key": "availability",
+                  "value": "",
+                  "description": "in_stock | out_of_stock | on_order"
+                },
+                {
+                  "key": "condition",
+                  "value": "",
+                  "description": "new | used | refurbished"
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search in product label"
+                },
+                {
+                  "key": "page",
+                  "value": "1",
+                  "description": "Page number"
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Results per page (max 100)"
+                }
+              ]
+            },
+            "description": "Lists all products across all stores with full details including store info.\n\n**Filters:** storeId, category, sub_category, product_group, isActive, availability, condition, search"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Products",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Products\",\n  \"data\": {\n    \"products\": [\n      {\n        \"id\": \"64prod1\",\n        \"label\": \"Indomie Noodles 70g\",\n        \"price\": 350,\n        \"isActive\": true,\n        \"store\": {\n          \"storeName\": \"Mama Tee's Kitchen\",\n          \"onboardingStatus\": \"verified\"\n        }\n      }\n    ],\n    \"pagination\": {\n      \"total\": 42,\n      \"page\": 1,\n      \"limit\": 20,\n      \"totalPages\": 3\n    }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Product Stats",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/products/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "products",
+                "stats"
+              ]
+            },
+            "description": "Platform-wide product statistics: totals by status, availability, condition, and top categories.\n\nUseful for the admin dashboard."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Stats",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product statistics\",\n  \"data\": {\n    \"totals\": {\n      \"total\": 312,\n      \"active\": 287,\n      \"inactive\": 25\n    },\n    \"availability\": {\n      \"inStock\": 241,\n      \"outOfStock\": 34,\n      \"onOrder\": 12\n    },\n    \"byCondition\": {\n      \"new\": 201,\n      \"used\": 74,\n      \"refurbished\": 12\n    },\n    \"topCategories\": [\n      {\n        \"categoryLabel\": \"Food & Drinks\",\n        \"count\": 89\n      },\n      {\n        \"categoryLabel\": \"Electronics\",\n        \"count\": 54\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Product Detail (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/products/{{productId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "products",
+                "{{productId}}"
+              ]
+            },
+            "description": "Full product detail including all private fields: viewCount, searchAppearances, boostLevel, and store info.\n\nIncludes the ProductGroup's linked spec template."
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Product Detail",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product detail\",\n  \"data\": {\n    \"product\": {\n      \"id\": \"{{productId}}\",\n      \"label\": \"Indomie Noodles 70g\",\n      \"price\": 350,\n      \"viewCount\": 24,\n      \"searchAppearances\": 110,\n      \"boostLevel\": 0,\n      \"isActive\": true,\n      \"store\": {\n        \"storeName\": \"Mama Tee's Kitchen\",\n        \"onboardingStatus\": \"verified\"\n      }\n    }\n  }\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Toggle Product Active",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/products/{{productId}}/toggle-active",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "products",
+                "{{productId}}",
+                "toggle-active"
+              ]
+            },
+            "description": "Toggles a product's `isActive` field.\n\n- `true \u2192 false`: product disappears from all public search results\n- `false \u2192 true`: product reappears if the store is still verified\n\n**No body required.**"
+          },
+          "response": [
+            {
+              "name": "200 \u2014 Toggled Off",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product deactivated\",\n  \"data\": {\n    \"id\": \"{{productId}}\",\n    \"label\": \"Indomie Noodles 70g\",\n    \"isActive\": false\n  }\n}"
+            },
+            {
+              "name": "200 \u2014 Toggled On",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"success\": true,\n  \"type\": \"success\",\n  \"message\": \"Product activated\",\n  \"data\": {\n    \"id\": \"{{productId}}\",\n    \"label\": \"Indomie Noodles 70g\",\n    \"isActive\": true\n  }\n}"
+            },
+            {
+              "name": "404 \u2014 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"success\": false,\n  \"type\": \"error\",\n  \"message\": \"Product not found\",\n  \"timestamp\": \"2025-01-01T00:00:00.000Z\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
